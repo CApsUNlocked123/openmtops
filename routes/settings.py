@@ -109,8 +109,7 @@ def restarting():
     def _do_restart():
         import time, subprocess
         time.sleep(1)
-        script = os.path.abspath(sys.argv[0])
-        subprocess.Popen([sys.executable, script])
+        subprocess.Popen([sys.executable, '-m', 'flask'] + sys.argv[1:])
         os._exit(0)
 
     threading.Thread(target=_do_restart, daemon=True).start()

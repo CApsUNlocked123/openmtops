@@ -5,6 +5,9 @@ import re
 import os
 import asyncio
 import threading
+from datetime import timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 api_id = int(API_APP)
 api_hash = API_HASH
@@ -52,7 +55,7 @@ async def fetch_tips_list(limit=50):
     async for msg in client.iter_messages(CHANNEL_ID, limit=limit):
         if is_tip(msg.text):
             tip = parse_tip(msg.text)
-            tip["date"] = msg.date.strftime("%Y-%m-%d %H:%M")
+            tip["date"] = msg.date.astimezone(IST).strftime("%Y-%m-%d %H:%M")
             tip["msg_id"] = msg.id
             tips.append(tip)
     return tips

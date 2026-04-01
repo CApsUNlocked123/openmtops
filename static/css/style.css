@@ -1,0 +1,56 @@
+/* ── Metric cards ──────────────────────────────────────────────────────── */
+.metric-card {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 14px 18px;
+  text-align: center;
+}
+.metric-label {
+  font-size: 0.75em;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+.metric-value {
+  font-size: 1.4em;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* ── Nav cards ─────────────────────────────────────────────────────────── */
+.card-icon { font-size: 2em; }
+
+/* ── Table tweaks ──────────────────────────────────────────────────────── */
+.table-hover tbody tr:hover { background-color: rgba(255,255,255,0.05); }
+.table th { font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* ── Scrollable chain table ────────────────────────────────────────────── */
+#chain-wrap .table-responsive { max-height: 70vh; overflow-y: auto; }
+#chain-wrap thead th { position: sticky; top: 0; z-index: 1; }
+
+/* ── ATM row highlight ─────────────────────────────────────────────────── */
+.atm-row { background: rgba(0, 150, 255, 0.08) !important; }
+.atm-row td { font-weight: 600; }
+
+/* ── Live status dot ───────────────────────────────────────────────────── */
+.live-dot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  background: #00cc66; margin-right: 6px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* ── State banners ─────────────────────────────────────────────────────── */
+#state-banner.watching  { border-color: #0dcaf0; }
+#state-banner.ordering  { border-color: #ffc107; background: rgba(255,193,7,0.1); }
+#state-banner.active    { border-color: #198754; background: rgba(25,135,84,0.1); }
+#state-banner.exiting   { border-color: #dc3545; background: rgba(220,53,69,0.1); }
+
+/* ── Misc ──────────────────────────────────────────────────────────────── */
+pre { font-size: 0.82em; }
+code { color: #adb5bd; }

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Trade History{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="fw-bold mb-0">📊 Trade History</h3>
+  <a href="/" class="btn btn-outline-secondary btn-sm">← Home</a>
+</div>
+<hr class="border-secondary">
+
+<!-- Summary metrics -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="metric-card">
+      <div class="metric-label">Total Trades</div>
+      <div class="metric-value">{{ summary.total }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="metric-card">
+      <div class="metric-label">Total P&amp;L</div>
+      <div class="metric-value {% if summary.pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
+        ₹{{ "%.2f" | format(summary.pnl) }}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="metric-card">
+      <div class="metric-label">Win Rate</div>
+      <div class="metric-value">{{ summary.win_rate }}%</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="metric-card">
+      <div class="metric-label">Wins / Losses</div>
+      <div class="metric-value">
+        <span class="text-success">{{ summary.wins }}</span>
+        / <span class="text-danger">{{ summary.losses }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if trades %}
+<div class="table-responsive">
+  <table class="table table-hover table-sm align-middle">
+    <thead class="table-dark">
+      <tr>
+        <th>Date</th><th>Symbol</th><th>Exit</th>
+        <th class="text-end">Entry ₹</th><th class="text-end">Buy ₹</th>
+        <th class="text-end">Exit ₹</th><th class="text-end">Lots</th>
+        <th class="text-end">Qty</th><th class="text-end">P&amp;L ₹</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in trades %}
+      <tr data-bs-toggle="collapse" data-bs-target="#detail-{{ loop.index }}"
+          style="cursor:pointer;">
+        <td class="text-secondary small">{{ t.exit_time[:16] if t.exit_time else '—' }}</td>
+        <td><strong>{{ t.trading_symbol or '—' }}</strong></td>
+        <td>
+          {% if t.exit_reason == 'TARGET' %}
+            <span class="badge bg-success">TARGET</span>
+          {% elif t.exit_reason == 'SL' %}
+            <span class="badge bg-danger">SL</span>
+          {% else %}
+            <span class="badge bg-secondary">{{ t.exit_reason or '—' }}</span>
+          {% endif %}
+        </td>
+        <td class="text-end">{{ "%.2f"|format(t.entry_trigger|float) if t.entry_trigger else '—' }}</td>
+        <td class="text-end">{{ "%.2f"|format(t.buy_price|float) if t.buy_price else '—' }}</td>
+        <td class="text-end">{{ "%.2f"|format(t.exit_price|float) if t.exit_price else '—' }}</td>
+        <td class="text-end">{{ t.lots or '—' }}</td>
+        <td class="text-end">{{ t.quantity or '—' }}</td>
+        <td class="text-end fw-bold {% if t.pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
+          ₹{{ "%.2f"|format(t.pnl|float) }}
+        </td>
+      </tr>
+      <tr class="collapse" id="detail-{{ loop.index }}">
+        <td colspan="9">
+          <pre class="bg-dark border border-secondary rounded p-3 small mb-0" style="font-size:0.8em;">{{ t | tojson(indent=2) }}</pre>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+  <div class="alert alert-info">No completed trades yet.</div>
+{% endif %}
+{% endblock %}

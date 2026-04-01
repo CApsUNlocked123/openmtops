@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Live — {{ trade.trading_symbol }}{% endblock %}
+
+{% block head %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h3 class="fw-bold mb-0">📡 {{ trade.trading_symbol }}</h3>
+    <small class="text-secondary">
+      Security ID: <code>{{ trade.security_id }}</code> &nbsp;|&nbsp;
+      Expiry: {{ trade.expiry[:10] if trade.expiry else '—' }} &nbsp;|&nbsp;
+      Lots: <strong>{{ trade.lots }}</strong> &nbsp;|&nbsp;
+      Qty: <strong>{{ trade.quantity }}</strong>
+    </small>
+  </div>
+  <form method="post" action="/live/back">
+    <button type="submit" class="btn btn-outline-secondary btn-sm">← Back</button>
+  </form>
+</div>
+
+<hr class="border-secondary">
+
+<!-- Feed status indicator -->
+<div id="feed-status" class="mb-3">
+  <span class="badge bg-warning text-dark">Connecting…</span>
+</div>
+
+<!-- State banner -->
+<div id="state-banner" class="alert alert-info mb-3" role="alert">
+  <span id="state-text">Watching — waiting for price in entry zone…</span>
+</div>
+
+<!-- Live metrics -->
+<div class="row g-3 mb-4">
+  <div class="col">
+    <div class="metric-card">
+      <div class="metric-label">LTP</div>
+      <div class="metric-value" id="ltp-val">—</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="metric-card">
+      <div class="metric-label">Entry Trigger</div>
+      <div class="metric-value text-info">₹{{ trade.entry }}</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="metric-card">
+      <div class="metric-label">Buy Zone &lt;</div>
+      {% if trade.targets %}
+        {% set buy_mid = (trade.entry + trade.targets[0]) / 2 %}
+        <div class="metric-value text-info">₹{{ "%.2f" | format(buy_mid) }}</div>
+      {% else %}
+        <div class="metric-value">—</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col">
+    <div class="metric-card">
+      <div class="metric-label">Stop Loss</div>
+      <div class="metric-value text-danger">₹{{ trade.sl if trade.sl else '—' }}</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="metric-card">
+      <div class="metric-label">Target</div>
+      <div class="metric-value text-success">
+        {% if trade.targets %}₹{{ trade.targets[0] }}{% else %}—{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Active trade extra info (hidden until active) -->
+<div id="active-section" class="d-none">
+  <div class="row g-3 mb-3">
+    <div class="col">
+      <div class="metric-card">
+        <div class="metric-label">Buy Price</div>
+        <div class="metric-value" id="buy-price-val">—</div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="metric-card">
+        <div class="metric-label">P&amp;L</div>
+        <div class="metric-value" id="pnl-val">—</div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="metric-card">
+        <div class="metric-label">Order ID</div>
+        <div class="metric-value fs-6" id="order-id-val">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Progress bar -->
+  <div class="mb-3" id="progress-wrap">
+    <div class="d-flex justify-content-between small text-secondary mb-1">
+      <span>Entry: ₹{{ trade.entry }}</span>
+      {% if trade.targets %}<span>Target: ₹{{ trade.targets[0] }}</span>{% endif %}
+    </div>
+    <div class="progress" style="height:12px;">
+      <div class="progress-bar bg-success" id="progress-bar" role="progressbar" style="width:0%"></div>
+    </div>
+  </div>
+
+  <!-- Manual exit -->
+  <form method="post" action="/live/exit" id="exit-form">
+    <input type="hidden" name="ltp" id="exit-ltp-input" value="0">
+    <button type="submit" class="btn btn-danger w-100">🚪 Exit Position Manually</button>
+  </form>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/live.js') }}"></script>
+<script>
+  const SECURITY_ID = "{{ trade.security_id }}";
+  const ENTRY       = {{ trade.entry }};
+  const SL          = {{ trade.sl }};
+  const TARGET1     = {{ trade.targets[0] if trade.targets else 0 }};
+  const QUANTITY    = {{ trade.quantity }};
+  initLivePage(SECURITY_ID, ENTRY, SL, TARGET1, QUANTITY);
+</script>
+{% endblock %}

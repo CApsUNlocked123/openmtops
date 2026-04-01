@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Option Analyzer{% endblock %}
+
+{% block head %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="fw-bold mb-0">🔬 Option Analyzer</h3>
+  <div class="d-flex gap-2">
+    {% if subscribed_sids %}
+    <form method="post" action="/analyzer/stop">
+      <button type="submit" class="btn btn-outline-danger btn-sm">■ Stop Feed</button>
+    </form>
+    {% endif %}
+    <a href="/" class="btn btn-outline-secondary btn-sm">← Home</a>
+  </div>
+</div>
+<hr class="border-secondary">
+
+<!-- Controls row -->
+<div class="row g-3 mb-3 align-items-end">
+  <div class="col-auto">
+    <label class="form-label text-secondary small">Index</label>
+    <select id="instrument-sel" class="form-select">
+      {% for idx in indices %}
+        <option value="{{ idx }}" {% if idx == selected_instrument %}selected{% endif %}>{{ idx }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label text-secondary small">Expiry</label>
+    <select id="expiry-sel" class="form-select" disabled>
+      <option>— select index first —</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button id="load-btn" class="btn btn-primary" disabled>Load Chain</button>
+  </div>
+</div>
+
+<!-- Feed status -->
+<div id="feed-badge" class="mb-2 d-none">
+  <span class="badge bg-success">🟢 Live Feed Active</span>
+  <span class="text-secondary small ms-2" id="feed-sids"></span>
+</div>
+
+<!-- Main content: chain table (left) + signal KPIs (right) -->
+<div class="row g-2 align-items-start">
+
+  <!-- Chain table (hidden until loaded) -->
+  <div class="col-10">
+  <div id="chain-wrap" class="d-none">
+
+    <!-- Info bar: LTP | PCR | Max Pain | Clarity -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
+      <div class="d-flex flex-wrap gap-3 align-items-center">
+        <span class="text-secondary small">
+          Spot: <strong id="ultp-val">—</strong>
+        </span>
+        <span class="text-secondary small">
+          PCR: <strong id="pcr-val">—</strong>
+          <span id="pcr-bias-badge" class="badge ms-1 bg-secondary">—</span>
+        </span>
+        <span class="text-secondary small">
+          Max Pain: <strong id="max-pain-val">—</strong>
+        </span>
+        <span class="text-secondary small">
+          OI Map: <span id="clarity-badge" class="badge bg-secondary">—</span>
+        </span>
+        <span class="text-secondary small" id="row-count-wrap">
+          <span id="row-count">0</span> strikes
+        </span>
+      </div>
+      <div class="d-flex gap-2">
+        <button id="subscribe-btn" class="btn btn-success btn-sm" disabled>
+          Subscribe Selected →
+        </button>
+        <button id="track-oi-btn" class="btn btn-outline-info btn-sm" disabled>
+          Track OI →
+        </button>
+      </div>
+    </div>
+
+    <div class="table-responsive" style="max-height:60vh; overflow-y:auto;">
+      <table class="table table-sm table-hover align-middle" style="font-size:0.85em;">
+        <thead class="table-dark sticky-top">
+          <tr>
+            <th class="text-center"><input type="checkbox" id="select-all"></th>
+            <th class="text-end">CE LTP</th>
+            <th class="text-end">CE OI</th>
+            <th class="text-end">IV%</th>
+            <th class="text-end">Delta</th>
+            <th class="text-center">Strike</th>
+            <th class="text-start">Delta</th>
+            <th class="text-start">IV%</th>
+            <th class="text-start">PE OI</th>
+            <th class="text-start">PE LTP</th>
+            <th class="text-center">Wall</th>
+          </tr>
+        </thead>
+        <tbody id="chain-body">
+        </tbody>
+      </table>
+    </div>
+  </div>
+  </div><!-- /col-10 -->
+
+  <!-- Signal KPI panel (right, 17%) -->
+  <div class="col-2" id="signal-panel" style="display:none;">
+
+    <!-- KPI 1: Trade Direction -->
+    <div class="card bg-dark border-secondary mb-2">
+      <div class="card-body p-2">
+        <div class="text-secondary small mb-1 fw-semibold">Trade Direction</div>
+        <div id="kpi-dir-badge" class="fs-5 fw-bold mb-1">—</div>
+        <div id="kpi-conf" class="small text-muted mb-2"></div>
+        <div class="small">
+          Wall: <strong id="kpi-wall">—</strong><br>
+          Entry: <strong id="kpi-entry">—</strong><br>
+          Target: <strong id="kpi-target" class="text-success">—</strong><br>
+          SL: <strong id="kpi-sl" class="text-danger">—</strong>
+        </div>
+        <div id="kpi-conditions" class="mt-2" style="font-size:0.72em; line-height:1.6;"></div>
+      </div>
+    </div>
+
+    <!-- KPI 2: Max Pain -->
+    <div class="card bg-dark border-secondary">
+      <div class="card-body p-2">
+        <div class="text-secondary small mb-1 fw-semibold">Max Pain</div>
+        <div id="kpi-maxpain" class="fs-5 fw-bold mb-1">—</div>
+        <div id="kpi-mp-dist" class="small text-muted"></div>
+        <div id="kpi-mp-bias" class="small mt-1"></div>
+      </div>
+    </div>
+
+  </div><!-- /col-2 -->
+
+</div><!-- /row -->
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/analyzer.js') }}"></script>
+<script>
+  const SUBSCRIBED_SIDS    = {{ subscribed_sids | tojson if subscribed_sids else 'null' }};
+  const SUBSCRIBED_STRIKES = {{ subscribed_strikes | tojson }};
+  initAnalyzer(SUBSCRIBED_SIDS, SUBSCRIBED_STRIKES);
+</script>
+{% endblock %}

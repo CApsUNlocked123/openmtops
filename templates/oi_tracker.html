@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% block title %}OI Tracker{% endblock %}
+
+{% block head %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+
+{# ── Formatting macro ──────────────────────────────────────────────────────── #}
+{% macro pattern_badge(p) -%}
+{%- if p == 'Long Buildup' %}<span class="badge bg-success">↑ Long Build</span>
+{%- elif p == 'Short Buildup' %}<span class="badge bg-danger">↓ Short Build</span>
+{%- elif p == 'Long Unwinding' %}<span class="badge bg-warning text-dark">↓ Long Unwind</span>
+{%- elif p == 'Short Covering' %}<span class="badge bg-info text-dark">↑ Short Cover</span>
+{%- else %}<span class="text-muted">—</span>
+{%- endif %}
+{%- endmacro %}
+
+{% macro fmt_oi(v) -%}
+{%- set a = v | abs -%}
+{%- if a == 0 %}—
+{%- elif a >= 10000000 %}{{ "%.2f" | format(v / 10000000) }}Cr
+{%- elif a >= 100000   %}{{ "%.2f" | format(v / 100000)   }}L
+{%- else %}{{ "{:,}".format(v) }}
+{%- endif %}
+{%- endmacro %}
+
+{# ── Header ──────────────────────────────────────────────────────────────── #}
+<div class="d-flex justify-content-between align-items-center mb-1">
+  <div>
+    <h3 class="fw-bold mb-0">📊 OI Tracker</h3>
+    <small class="text-secondary">
+      Started: <span id="start-display">{{ kpis.start_display }}</span>
+      &nbsp;|&nbsp; Duration: <span id="duration">{{ kpis.duration }}</span>
+      &nbsp;|&nbsp; Spot: <strong id="spot-price">{% if kpis.ultp %}₹{{ '{:,.2f}'.format(kpis.ultp) }}{% else %}—{% endif %}</strong>
+      {% if kpis.atm_strike %}
+      &nbsp;|&nbsp; ATM: <span class="text-warning fw-bold" id="atm-strike">{{ '{:,}'.format(kpis.atm_strike) }}</span>
+      {% endif %}
+      {% if kpis.straddle_cost %}
+      &nbsp;|&nbsp; ATM Straddle:
+      <strong id="straddle-cost">₹{{ '%.2f' | format(kpis.straddle_cost) }}</strong>
+      (<span id="straddle-pct">{{ kpis.straddle_pct }}%</span> of spot)
+      {% endif %}
+    </small>
+  </div>
+  <div class="d-flex gap-2">
+    <form method="post" action="/oi_tracker/stop">
+      <button type="submit" class="btn btn-outline-danger btn-sm">■ Stop Tracking</button>
+    </form>
+    <a href="/analyzer" class="btn btn-outline-secondary btn-sm">← Analyzer</a>
+  </div>
+</div>
+<hr class="border-secondary">
+
+{# ── KPI Cards ────────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+
+  {# PCR #}
+  <div class="col-md-3">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body">
+        <h6 class="text-secondary mb-2">PCR Ratio</h6>
+        <div class="d-flex align-items-baseline gap-2 mb-1">
+          <span class="text-muted small">Base</span>
+          <span id="pcr-base" class="fs-5 fw-bold">{{ kpis.pcr_base }}</span>
+          <span class="text-muted">→</span>
+          <span id="pcr-now" class="fs-5 fw-bold text-warning">{{ kpis.pcr_now }}</span>
+        </div>
+        <div class="small">
+          Change:
+          <span id="pcr-change"
+            class="{{ 'text-success' if kpis.pcr_change >= 0 else 'text-danger' }} fw-bold">
+            {{ '+' if kpis.pcr_change >= 0 else '' }}{{ kpis.pcr_change }}
+          </span>
+          &nbsp;
+          <span id="pcr-bias" class="badge
+            {%- if kpis.pcr_now >= 1.2 %} bg-success
+            {%- elif kpis.pcr_now <= 0.8 %} bg-danger
+            {%- else %} bg-secondary{% endif %}">
+            {%- if kpis.pcr_now >= 1.2 %}BULLISH
+            {%- elif kpis.pcr_now <= 0.8 %}BEARISH
+            {%- else %}NEUTRAL{%- endif %}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Call OI vs Put OI — line chart #}
+  <div class="col-md-6">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <h6 class="text-secondary mb-0">Call OI vs Put OI</h6>
+          <div class="d-flex gap-3" style="font-size:0.8em;">
+            <span>
+              <span class="text-danger">●</span> CE Δ:
+              <span id="total-ce-delta" class="fw-bold {{ 'text-danger' if kpis.total_ce_delta >= 0 else 'text-success' }}">{{ '+' if kpis.total_ce_delta >= 0 else '' }}{{ fmt_oi(kpis.total_ce_delta) }}</span>
+              <span id="ce-delta-label" class="text-muted">{{ 'writing ↑ bearish' if kpis.total_ce_delta > 0 else ('unwinding ↓ bullish' if kpis.total_ce_delta < 0 else '') }}</span>
+            </span>
+            <span>
+              <span class="text-success">●</span> PE Δ:
+              <span id="total-pe-delta" class="fw-bold {{ 'text-success' if kpis.total_pe_delta >= 0 else 'text-danger' }}">{{ '+' if kpis.total_pe_delta >= 0 else '' }}{{ fmt_oi(kpis.total_pe_delta) }}</span>
+              <span id="pe-delta-label" class="text-muted">{{ 'writing ↑ bullish' if kpis.total_pe_delta > 0 else ('unwinding ↓ bearish' if kpis.total_pe_delta < 0 else '') }}</span>
+            </span>
+          </div>
+        </div>
+        <div style="position:relative; height:105px;">
+          <canvas id="oi-line-chart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# IV Skew #}
+  <div class="col-md-3">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body">
+        <h6 class="text-secondary mb-2">IV Skew</h6>
+        <div class="d-flex align-items-baseline gap-2 mb-1">
+          <span class="text-muted small">CE</span>
+          <span id="avg-ce-iv" class="fs-6 fw-bold text-danger">{{ kpis.avg_ce_iv }}%</span>
+          <span class="text-muted">PE</span>
+          <span id="avg-pe-iv" class="fs-6 fw-bold text-success">{{ kpis.avg_pe_iv }}%</span>
+        </div>
+        <div class="small">
+          Ratio: <span id="iv-skew-ratio" class="fw-bold text-warning">{{ kpis.iv_skew_ratio }}</span>
+          <br><span id="iv-skew-label" class="text-muted">{{ kpis.iv_skew_label }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{# ── Strike-wise OI table ─────────────────────────────────────────────────── #}
+<h5 class="fw-semibold mb-2">Strike-wise OI Changes</h5>
+<div class="table-responsive mb-4" style="max-height:55vh; overflow-y:auto;">
+  <table class="table table-sm table-hover align-middle" style="font-size:0.82em;">
+    <thead class="table-dark sticky-top">
+      <tr>
+        <th class="text-center">CE Pattern</th>
+        <th class="text-end">CE LTP</th>
+        <th class="text-end">CE OI</th>
+        <th class="text-end">CE OI Δ</th>
+        <th class="text-end">CE Δ%</th>
+        <th class="text-center fw-bold">Strike</th>
+        <th class="text-start">PE Δ%</th>
+        <th class="text-start">PE OI Δ</th>
+        <th class="text-start">PE OI</th>
+        <th class="text-start">PE LTP</th>
+        <th class="text-center">PE Pattern</th>
+        <th class="text-center">Trade</th>
+      </tr>
+    </thead>
+    <tbody id="oi-body">
+      {% for row in kpis.rows %}
+      <tr id="row-{{ row.strike }}">
+        <td class="text-center" id="ce-pattern-{{ row.strike }}">
+          {{ pattern_badge(row.ce_pattern) if row.ce_pattern else '—' }}
+        </td>
+        <td class="text-end" id="ce-ltp-{{ row.strike }}">
+          {{ '₹%.2f' | format(row.ce_ltp) if row.ce_ltp else '—' }}
+        </td>
+        <td class="text-end text-info" id="ce-oi-{{ row.strike }}">
+          {{ fmt_oi(row.ce_oi) }}
+        </td>
+        <td class="text-end fw-semibold {{ 'text-danger' if row.ce_delta >= 0 else 'text-success' }}"
+            id="ce-delta-{{ row.strike }}">
+          {{ '+' if row.ce_delta >= 0 else '' }}{{ fmt_oi(row.ce_delta) }}
+        </td>
+        <td class="text-end {{ 'text-danger' if row.ce_pct >= 0 else 'text-success' }}"
+            id="ce-pct-{{ row.strike }}">
+          {{ '+' if row.ce_pct >= 0 else '' }}{{ row.ce_pct }}%
+        </td>
+        <td class="text-center fw-bold text-light" id="strike-{{ row.strike }}">
+          {{ '{:,}'.format(row.strike) }}
+        </td>
+        <td class="text-start {{ 'text-success' if row.pe_pct >= 0 else 'text-danger' }}"
+            id="pe-pct-{{ row.strike }}">
+          {{ '+' if row.pe_pct >= 0 else '' }}{{ row.pe_pct }}%
+        </td>
+        <td class="text-start fw-semibold {{ 'text-success' if row.pe_delta >= 0 else 'text-danger' }}"
+            id="pe-delta-{{ row.strike }}">
+          {{ '+' if row.pe_delta >= 0 else '' }}{{ fmt_oi(row.pe_delta) }}
+        </td>
+        <td class="text-start text-info" id="pe-oi-{{ row.strike }}">
+          {{ fmt_oi(row.pe_oi) }}
+        </td>
+        <td class="text-start" id="pe-ltp-{{ row.strike }}">
+          {{ '₹%.2f' | format(row.pe_ltp) if row.pe_ltp else '—' }}
+        </td>
+        <td class="text-center" id="pe-pattern-{{ row.strike }}">
+          {{ pattern_badge(row.pe_pattern) if row.pe_pattern else '—' }}
+        </td>
+        <td class="text-center text-nowrap">
+          <button class="btn btn-outline-danger btn-sm py-0 px-1"
+                  onclick="openTradeModal({{ row.strike }}, 'CE', {{ row.ce_ltp }})">↗CE</button>
+          <button class="btn btn-outline-success btn-sm py-0 px-1"
+                  onclick="openTradeModal({{ row.strike }}, 'PE', {{ row.pe_ltp }})">↗PE</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{# ── Large Volume Orders ──────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center gap-2 mb-2">
+  <h5 class="fw-semibold mb-0">Large Volume Orders</h5>
+  <span class="badge bg-secondary" id="lv-count">{{ kpis.large_orders | length }}</span>
+  <span class="text-muted small">(cumulative qty by strike)</span>
+</div>
+
+<div style="position:relative; height:200px;">
+  <canvas id="lvo-bar-chart"></canvas>
+  <div id="lv-empty" class="position-absolute top-50 start-50 translate-middle text-secondary small"
+       {% if kpis.large_orders %}style="display:none"{% endif %}>
+    No large orders detected yet.
+  </div>
+</div>
+
+{# ── Quick Trade Modal ─────────────────────────────────────────────────────── #}
+<div class="modal fade" id="quick-trade-modal" tabindex="-1" aria-labelledby="qtModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary py-2">
+        <h6 class="modal-title fw-bold" id="qtModalLabel">Enter Trade</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="/oi_tracker/quick_trade">
+        <div class="modal-body">
+          <input type="hidden" name="strike"      id="qt-strike">
+          <input type="hidden" name="option_type" id="qt-option-type">
+
+          <div class="mb-2">
+            <div class="text-secondary small mb-1">
+              <span id="qt-label" class="fw-bold text-warning"></span>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label text-secondary small mb-1">Entry Trigger (above)</label>
+            <input type="number" step="0.01" name="entry" id="qt-entry"
+                   class="form-control form-control-sm" placeholder="150.00" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label text-secondary small mb-1">Stop Loss</label>
+            <input type="number" step="0.01" name="sl" id="qt-sl"
+                   class="form-control form-control-sm" placeholder="100.00">
+          </div>
+          <div class="mb-2">
+            <label class="form-label text-secondary small mb-1">Targets (comma-separated)</label>
+            <input type="text" name="targets" id="qt-targets"
+                   class="form-control form-control-sm" placeholder="200, 250" required>
+          </div>
+          <div class="mb-1">
+            <label class="form-label text-secondary small mb-1">Lots</label>
+            <div class="d-flex gap-3 align-items-center">
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="lots_mode" value="auto"
+                       id="qt-lots-auto" checked onchange="qtToggleLots(this)">
+                <label class="form-check-label small" for="qt-lots-auto">Auto</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="lots_mode" value="manual"
+                       id="qt-lots-manual" onchange="qtToggleLots(this)">
+                <label class="form-check-label small" for="qt-lots-manual">Manual</label>
+              </div>
+              <input type="number" name="lots_manual" id="qt-lots-manual-input"
+                     class="form-control form-control-sm" style="width:70px;" min="1" value="1" disabled>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-secondary py-2">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success btn-sm">▶ Start Watching</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const OI_START_TIME = {{ kpis.start_time | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/oi_tracker.js') }}"></script>
+<script>initOITracker();</script>
+{% endblock %}

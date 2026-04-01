@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="fw-bold mb-0">⚙️ Settings</h3>
+  <a href="/" class="btn btn-outline-secondary btn-sm">← Home</a>
+</div>
+<hr class="border-secondary">
+
+<div class="row g-4">
+
+  <!-- Telegram Section -->
+  <div class="col-md-6">
+    <div class="card border-secondary h-100">
+      <div class="card-header fw-bold">Telegram Authentication</div>
+      <div class="card-body">
+
+        {% if tg_authorized %}
+          <div class="alert alert-success">✅ Telegram is authenticated</div>
+          <form method="post" action="/settings/tg/reauth">
+            <button type="submit" class="btn btn-outline-warning btn-sm">Re-authenticate</button>
+          </form>
+
+        {% elif tg_step == 'code' %}
+          <p class="text-secondary small">Enter the code sent to your phone.</p>
+          <form method="post" action="/settings/tg/code">
+            <div class="mb-3">
+              <label class="form-label">Verification Code</label>
+              <input type="text" name="code" class="form-control" placeholder="12345" autofocus required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Verify Code</button>
+          </form>
+
+        {% elif tg_step == 'password' %}
+          <p class="text-secondary small">Enter your 2-FA cloud password.</p>
+          <form method="post" action="/settings/tg/2fa">
+            <div class="mb-3">
+              <label class="form-label">2-FA Password</label>
+              <input type="password" name="password" class="form-control" autofocus required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Submit Password</button>
+          </form>
+
+        {% else %}
+          <p class="text-secondary small">Not authenticated. Enter your phone number to receive an OTP.</p>
+          <form method="post" action="/settings/tg/phone">
+            <div class="mb-3">
+              <label class="form-label">Phone Number (with country code)</label>
+              <input type="tel" name="phone" class="form-control" placeholder="+919876543210" autofocus required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Send Code</button>
+          </form>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Dhan API Section -->
+  <div class="col-md-6">
+    <div class="card border-secondary h-100">
+      <div class="card-header fw-bold">Dhan API Credentials</div>
+      <div class="card-body">
+        <p class="small text-secondary mb-3">
+          Current Client ID: <code>{{ client_id }}</code><br>
+          Current Token: <code>{{ masked_token }}</code>
+        </p>
+
+        <form method="post" action="/settings/dhan/test" class="mb-3">
+          <button type="submit" class="btn btn-outline-info btn-sm">Test Connection</button>
+        </form>
+
+        <details>
+          <summary class="text-secondary small" style="cursor:pointer;">Update credentials (takes effect on restart)</summary>
+          <form method="post" action="/settings/dhan" class="mt-3">
+            <div class="mb-3">
+              <label class="form-label">Client ID</label>
+              <input type="text" name="client_id" class="form-control"
+                     value="{{ client_id }}" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Access Token</label>
+              <textarea name="access_token" class="form-control" rows="4" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-warning w-100">💾 Save &amp; Restart</button>
+          </form>
+        </details>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

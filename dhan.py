@@ -57,10 +57,11 @@ def lookup_security(symbol: str, strike, option_type: str) -> dict | None:
         return None
 
     row = filtered.sort_values("_expiry_dt").iloc[0]
+    exch = "BSE_FNO" if str(row.get("SEM_EXM_EXCH_ID", "")).upper() == "BSE" else "NSE_FNO"
     return {
-        "security_id":     str(int(row["SEM_SMST_SECURITY_ID"])),
-        "trading_symbol":  row["SEM_TRADING_SYMBOL"],
-        "expiry":          row["SEM_EXPIRY_DATE"],
-        "lot_size":        int(row["SEM_LOT_UNITS"]),
-        "exchange_segment": "NSE_FNO",
+        "security_id":      str(int(row["SEM_SMST_SECURITY_ID"])),
+        "trading_symbol":   row["SEM_TRADING_SYMBOL"],
+        "expiry":           row["SEM_EXPIRY_DATE"],
+        "lot_size":         int(row["SEM_LOT_UNITS"]),
+        "exchange_segment": exch,
     }

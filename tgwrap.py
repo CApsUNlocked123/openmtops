@@ -55,7 +55,8 @@ async def fetch_tips_list(limit=50):
     async for msg in client.iter_messages(CHANNEL_ID, limit=limit):
         if is_tip(msg.text):
             tip = parse_tip(msg.text)
-            tip["date"] = msg.date.astimezone(IST).strftime("%Y-%m-%d %H:%M")
+            utc_date = msg.date.replace(tzinfo=timezone.utc) if msg.date.tzinfo is None else msg.date
+            tip["date"] = utc_date.astimezone(IST).strftime("%d %b %Y %H:%M")
             tip["msg_id"] = msg.id
             tips.append(tip)
     return tips

@@ -20,19 +20,27 @@ function initLivePage(securityId, entry, sl, target1, quantity) {
 
   // ── Connection events ────────────────────────────────────────────────────
   socket.on("connect", () => {
+    console.log("[socket] connected, id=", socket.id);
     feedEl.innerHTML = '<span class="badge bg-success"><span class="live-dot"></span>Feed Connected</span>';
     socket.emit("live_join", {});
   });
 
+  socket.on("connect_error", (err) => {
+    console.error("[socket] connect_error", err);
+  });
+
   socket.on("disconnect", () => {
+    console.warn("[socket] disconnected");
     feedEl.innerHTML = '<span class="badge bg-warning text-dark">Reconnecting…</span>';
   });
 
   // ── Price tick ───────────────────────────────────────────────────────────
   socket.on("tick", (data) => {
+    console.log("[tick]", data);
     if (String(data.sid) !== String(securityId)) return;
 
     const ltp = parseFloat(data.ltp);
+    if (ltp <= 0) return;
     currentLtp = ltp;
 
     ltpEl.textContent = "₹" + ltp.toFixed(2);

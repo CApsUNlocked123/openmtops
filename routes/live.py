@@ -251,6 +251,13 @@ def _check_auto_trade(sid: str, ltp: float):
                 _do_exit(ltp, "TARGET")
 
 
+def _exch_segment(name: str) -> int:
+    return MarketFeed.BSE_FNO if name == "BSE_FNO" else MarketFeed.NSE_FNO
+
+def _feed_mode(exchange_segment: str):
+    return MarketFeed.Full if exchange_segment == "BSE_FNO" else MarketFeed.Quote
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @bp.route("/live")
@@ -261,8 +268,9 @@ def live_page():
     params = session["watching"]
 
     # Only re-initialise if we're idle (not already in a trade after a refresh)
-    if _trade.get("state") == "idle":
+    if _trade.get("state") == "idle" or str(_trade.get("security_id")) != str(params.get("security_id")):
         # Calculate quantity from funds
+        print(f"[live] params from session: {params}")
         lot_size      = int(params.get("lot_size", 65))
         lots_override = params.get("lots_override")
         entry_price   = float(params.get("entry") or 0)
@@ -275,7 +283,7 @@ def live_page():
             try:
                 resp  = dhan.get_fund_limits()
                 funds = float(resp["data"]["availabelBalance"]) if resp.get("status") == "success" else 0
-                lots  = floor(funds / (entry_price * lot_size)) if entry_price > 0 else 0
+                lots  = floor((funds / 2) / (entry_price * lot_size)) if entry_price > 0 else 0
             except Exception:
                 funds = 0
                 lots  = 0
@@ -301,23 +309,35 @@ def live_page():
         # Start price feed with auto-execution callback
         def on_tick(sid, tick):
             ltp = float(tick.get("LTP") or 0)
-            if ltp <= 0:
-                return   # OI / status / prev-close packets — no price data
             if _sio:
                 _sio.emit("tick", {
                     "sid":  sid,
                     "ltp":  ltp,
                     "ltt":  tick.get("LTT", ""),
                 })
-            _check_auto_trade(sid, ltp)
+            if ltp > 0:
+                _check_auto_trade(sid, ltp)
 
+        print(f"[live] starting feed for security_id={params['security_id']}, lots={lots}, qty={lots * lot_size}")
         price_feed.start_feed(
             dhan_context,
-            [(MarketFeed.NSE_FNO, params["security_id"], MarketFeed.Ticker)],
+            [(_exch_segment(params.get("exchange_segment", "NSE_FNO")), str(params["security_id"]), _feed_mode(params.get("exchange_segment", "NSE_FNO")))],
             on_tick=on_tick,
         )
 
     return render_template("live.html", trade=_trade)
+
+
+@bp.route("/live/status")
+def live_status():
+    from flask import jsonify
+    return jsonify({
+        "trade_state":   _trade.get("state"),
+        "security_id":   _trade.get("security_id"),
+        "feed_status":   price_feed.feed_status(),
+        "feed_cache_keys": list(price_feed.price_cache.keys()),
+        "last_error":    price_feed.last_error(),
+    })
 
 
 @bp.route("/live/exit", methods=["POST"])

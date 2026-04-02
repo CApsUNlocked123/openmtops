@@ -49,6 +49,7 @@ def custom_trade():
             "trading_symbol": sec["trading_symbol"],
             "expiry":         sec["expiry"],
             "lot_size":       lot_size,
+            "exchange_segment": sec["exchange_segment"],
             "entry":          entry,
             "sl":             sl,
             "targets":        targets,

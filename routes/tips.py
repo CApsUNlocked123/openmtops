@@ -64,6 +64,7 @@ def execute_tip():
         "trading_symbol": sec["trading_symbol"],
         "expiry":         sec["expiry"],
         "lot_size":       sec["lot_size"],
+        "exchange_segment": sec["exchange_segment"],
         "entry":          entry,
         "sl":             sl,
         "targets":        targets,

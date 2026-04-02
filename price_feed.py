@@ -30,19 +30,38 @@ def start_feed(dhan_context, instruments: list[tuple], on_tick=None):
     stop_feed()
 
     def _on_connect(feed):
+        print(f"[feed] connected to DhanHQ WebSocket")
         price_cache["__status__"] = "connected"
 
     def _on_message(feed, tick):
+        print(f"[feed] tick received: {tick!r}")
         if tick and "security_id" in tick:
             sid = str(tick["security_id"])
             price_cache[sid] = tick
             if on_tick:
-                on_tick(sid, tick)
+                try:
+                    on_tick(sid, tick)
+                except Exception as e:
+                    print(f"[feed] on_tick error: {e}")
 
     def _on_error(feed, exc):
-        price_cache["__error__"]           = str(exc)
-        price_cache["__reconnect_count__"] = price_cache.get("__reconnect_count__", 0) + 1
-        price_cache["__status__"]          = "reconnecting"
+        msg = str(exc)
+        if "no close frame" in msg or "no close frame" in msg.lower():
+            return  # dhanhq keepalive quirk — ignore
+        print(f"[feed] ERROR: {msg}")
+        price_cache["__error__"] = msg
+        price_cache["__status__"] = "reconnecting"
+        if "429" in msg:
+            print("[feed] Rate limited (429) — stopping feed for 30s")
+            feed._running = False
+            import threading
+            def _restart():
+                time.sleep(30)
+                if price_cache.get("__status__") != "disconnected":
+                    feed._running = True
+                    import asyncio
+                    asyncio.run_coroutine_threadsafe(feed._run_async(), feed.loop)
+            threading.Thread(target=_restart, daemon=True).start()
 
     def _on_close(feed):
         if price_cache.get("__status__") != "disconnected":

@@ -46,6 +46,10 @@ def dashboard_page():
 
 def _get_oi_snapshot() -> dict | None:
     """Return OI KPI dict from oi_tracker if it is currently tracking, else None."""
+    import os
+    if os.getenv("TESTING") == "1":
+        from testing.dummy_data import OI_SNAPSHOT
+        return OI_SNAPSHOT
     try:
         from routes.oi_tracker import _compute_kpis, _tracker
         if _tracker.get("state") != "tracking":
@@ -231,9 +235,15 @@ def _build_snapshot(instrument: str) -> dict:
     timeline = build_phase_timeline(clean_log, candles_12)
     spot     = candles_all[-1]["close"] if candles_all else None
 
-    # Candle series for the phase line chart (all stored candles, not just last 12)
+    # Candle series for the phase line chart (all stored candles, not just last 12).
+    # Daily candles (different dates) use the date part so the x-axis is readable.
+    # Intraday candles (same date) use HH:MM so phase times align to the labels.
+    _use_date = (
+        len(candles_all) >= 2
+        and candles_all[0]["time"][:10] != candles_all[-1]["time"][:10]
+    )
     candles_chart = [
-        {"t": c["time"][11:16], "c": c["close"]}   # "HH:MM" label + close price
+        {"t": c["time"][:10] if _use_date else c["time"][11:16], "c": c["close"]}
         for c in candles_all if c.get("close") is not None
     ]
     ema_chart = [
@@ -256,9 +266,11 @@ def _build_snapshot(instrument: str) -> dict:
         "candles_chart": candles_chart,
         "ema_chart":     ema_chart,
         "pcr_now":       pcr_now,
-        "oi_available":  oi_snap is not None,
-        "atm_strike":    oi_snap.get("atm_strike") if oi_snap else None,
-        "live_candle":   live_candle,
+        "oi_available":    oi_snap is not None,
+        "atm_strike":      oi_snap.get("atm_strike") if oi_snap else None,
+        "total_ce_delta":  call_oi_delta,
+        "total_pe_delta":  put_oi_delta,
+        "live_candle":     live_candle,
     }
 
 

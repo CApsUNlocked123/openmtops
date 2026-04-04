@@ -142,6 +142,20 @@ function initPhaseChart() {
                     spanGaps: true,
                     order: 2,
                 },
+                {
+                    // Phase-start markers: colored dots at each phase transition candle
+                    label: "Phase Start",
+                    data: [],
+                    backgroundColor: [],
+                    borderColor: "#fff",
+                    borderWidth: 1.5,
+                    pointRadius: 7,
+                    pointHoverRadius: 9,
+                    pointStyle: "circle",
+                    showLine: false,
+                    spanGaps: false,
+                    order: 0,
+                },
             ],
         },
         options: {
@@ -150,10 +164,23 @@ function initPhaseChart() {
             animation: { duration: 300 },
             interaction: { mode: "index", intersect: false },
             plugins: {
-                legend: { labels: { color: "#adb5bd", boxWidth: 12, font: { size: 11 } } },
+                legend: {
+                    labels: {
+                        color: "#adb5bd",
+                        boxWidth: 12,
+                        font: { size: 11 },
+                        filter: item => item.datasetIndex < 2,   // hide "Phase Start" from legend
+                    },
+                },
                 tooltip: {
                     callbacks: {
-                        label: ctx => `${ctx.dataset.label}: ${ctx.raw?.toFixed(2) ?? "—"}`,
+                        label: ctx => {
+                            if (ctx.datasetIndex === 2 && ctx.raw != null) {
+                                const lbl = phaseChart._phasePointLabels?.[ctx.dataIndex] ?? "Phase";
+                                return `${lbl}: ₹${ctx.raw.toFixed(2)}`;
+                            }
+                            return `${ctx.dataset.label}: ${ctx.raw?.toFixed(2) ?? "—"}`;
+                        },
                     },
                 },
             },
@@ -183,9 +210,26 @@ function updatePhaseChart(candles, emaValues, timeline) {
     phaseChart.data.datasets[0].data = closes;
     phaseChart.data.datasets[1].data = emaValues ?? [];
 
-    // Build background phase regions using Chart.js annotation plugin alternative:
-    // We use the built-in `plugins.annotation` if available, else fall back to
-    // rendering colored bands via a custom beforeDraw plugin stored on the chart.
+    // Phase-start scatter markers: one colored dot per phase transition
+    const phasePoints  = new Array(labels.length).fill(null);
+    const ptColors     = new Array(labels.length).fill("transparent");
+    const ptLabels     = new Array(labels.length).fill(null);
+    if (timeline) {
+        for (const t of timeline) {
+            const idx = _nearestLabelIdx(labels, t.start_time);
+            if (idx >= 0 && closes[idx] != null) {
+                phasePoints[idx] = closes[idx];
+                ptColors[idx]    = t.color;
+                ptLabels[idx]    = t.phase;
+            }
+        }
+    }
+    phaseChart.data.datasets[2].data            = phasePoints;
+    phaseChart.data.datasets[2].backgroundColor = ptColors;
+    phaseChart.data.datasets[2].borderColor     = ptColors.map(c => c === "transparent" ? "transparent" : "#fff");
+    phaseChart._phasePointLabels                = ptLabels;
+
+    // Background phase bands (colored regions)
     phaseChart._phaseRegions = _buildPhaseRegions(labels, timeline);
     phaseChart.update("none");
 }
@@ -195,12 +239,11 @@ function _buildPhaseRegions(labels, timeline) {
     if (!timeline || timeline.length === 0) return [];
     const regions = [];
     for (const t of timeline) {
-        const startIdx = labels.indexOf(t.start_time);
+        const startIdx = _nearestLabelIdx(labels, t.start_time);
+        if (startIdx < 0) continue;
         const endLabel = t.end_time ?? labels[labels.length - 1];
-        let endIdx     = labels.indexOf(endLabel);
-        if (endIdx === -1) endIdx = labels.length - 1;
-        if (startIdx === -1) continue;
-        regions.push({ startIdx, endIdx, color: t.color + "33", label: t.phase });
+        const endIdx   = _nearestLabelIdx(labels, endLabel);
+        regions.push({ startIdx, endIdx: endIdx < 0 ? labels.length - 1 : endIdx, color: t.color + "33", label: t.phase });
     }
     return regions;
 }
@@ -321,10 +364,36 @@ function updateRegimeBanner(regime, phase, velocity, spot) {
     setText("spot-price",     spot != null ? spot.toFixed(2) : "—");
 }
 
+// ── Nearest label index helper ────────────────────────────────────────────────
+function _nearestLabelIdx(labels, time) {
+    if (!time || labels.length === 0) return -1;
+    const exact = labels.indexOf(time);
+    if (exact >= 0) return exact;
+    // First label >= time (rounds phase start up to the next available candle)
+    const fwd = labels.findIndex(l => l >= time);
+    if (fwd >= 0) return fwd;
+    return labels.length - 1;
+}
+
 // ── Greeks Momentum ───────────────────────────────────────────────────────────
+function _fmtOIDelta(v) {
+    if (v == null) return "—";
+    const sign = v >= 0 ? "+" : "-";
+    const abs  = Math.abs(v);
+    return sign + (abs >= 1_000_000
+        ? (abs / 1_000_000).toFixed(2) + "M"
+        : (abs / 1_000).toFixed(1) + "K");
+}
+
 function updateGreeksMomentum(data) {
-    const oi    = data.oi_available;
-    const snap  = data;      // reuse top-level fields
+    // CE / PE OI deltas — available only when OI tracker is running
+    if (data.oi_available) {
+        setText("kpi-ce-delta", _fmtOIDelta(data.total_ce_delta));
+        setText("kpi-pe-delta", _fmtOIDelta(data.total_pe_delta));
+    } else {
+        setText("kpi-ce-delta", "—");
+        setText("kpi-pe-delta", "—");
+    }
 
     // KPI cards
     setText("kpi-velocity", data.velocity ? `${data.velocity.velocity} / ${data.velocity.type}` : "—");
@@ -488,19 +557,6 @@ function updateWallMarkers(wall) {
     setText("wall-support",    wall.support_strike    ?? "—");
     const dist = wall.nearest_wall_distance;
     setText("wall-distance", dist != null ? dist.toFixed(0) + " pts" : "—");
-}
-
-// ── Update OI KPIs from snapshot (if available) ───────────────────────────────
-function updateOIKpisFromSnapshot(data) {
-    // CE and PE OI deltas come from snapshot when oi_available is true
-    // (populated when oi_tracker is running)
-    if (!data.oi_available) {
-        setText("kpi-ce-delta", "—");
-        setText("kpi-pe-delta", "—");
-        return;
-    }
-    // We don't have direct deltas in snapshot — they are in oi_map
-    // Leave the KPI cards showing data from the last oi_map response
 }
 
 // ── OI auto-start ─────────────────────────────────────────────────────────────

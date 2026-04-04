@@ -77,8 +77,10 @@ function initLivePage(securityId, entry, sl, target1, quantity) {
     } else if (data.state === "watching" && data.error) {
       setStateBanner("watching", `Order failed: ${data.error} — still watching.`);
     } else if (data.state === "active") {
-      buyPrice = parseFloat(data.buy_price);
-      buyPriceEl.textContent = "₹" + buyPrice.toFixed(2);
+      if (data.buy_price != null) {
+        buyPrice = parseFloat(data.buy_price);
+        buyPriceEl.textContent = "₹" + buyPrice.toFixed(2);
+      }
       if (orderIdEl && data.order_id) orderIdEl.textContent = data.order_id;
       activeEl.classList.remove("d-none");
       setStateBanner("active", "Position OPEN — monitoring SL and target…");

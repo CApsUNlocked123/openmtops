@@ -57,4 +57,18 @@ def custom_trade():
         }
         return redirect("/live")
 
-    return render_template("custom.html", indices=INDICES, form={})
+    import os
+    prefill = {}
+    if os.getenv("TESTING") == "1":
+        from testing.dummy_data import SECURITY, TICK_ENTRY, TICK_SL, TICK_T1, TICK_T2
+        prefill = {
+            "instrument":  "NIFTY",
+            "strike":      "25100",
+            "option_type": "CE",
+            "entry":       str(TICK_ENTRY),
+            "sl":          str(TICK_SL),
+            "targets":     f"{TICK_T1},{TICK_T2}",
+            "lots_mode":   "manual",
+            "lots_manual": "1",
+        }
+    return render_template("custom.html", indices=INDICES, form=prefill)

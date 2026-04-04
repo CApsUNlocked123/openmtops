@@ -4,6 +4,17 @@ Run:  python app.py
 """
 
 import os
+
+# ── Testing mode: patch sys.modules BEFORE any route import sees real modules ──
+# Set TESTING=1 in .env to run with dummy data (no Dhan/Telegram credentials).
+if os.getenv("TESTING") == "1":
+    import sys
+    from testing import mock_dhan, mock_price_feed, mock_candle_service
+    sys.modules["dhan"]           = mock_dhan
+    sys.modules["price_feed"]     = mock_price_feed
+    sys.modules["candle_service"] = mock_candle_service
+    print("[TESTING] mock modules injected: dhan, price_feed, candle_service")
+
 from flask import Flask, redirect, session, request
 from extensions import socketio
 
@@ -29,7 +40,8 @@ def create_app() -> Flask:
     socketio.init_app(app, async_mode="threading", cors_allowed_origins="*")
 
     # Start background services (daemon threads)
-    candle_service.start()
+    if os.getenv("TESTING") != "1":
+        candle_service.start()
     notification_service.start(socketio)
 
     # ── Blueprints — auth first so its routes take priority ───────────────────
@@ -60,6 +72,8 @@ def create_app() -> Flask:
 
     @app.before_request
     def _auth_guard():
+        if os.getenv("TESTING") == "1":
+            return   # bypass all auth checks in test mode
         path = request.path
         if path.startswith("/static"):
             return

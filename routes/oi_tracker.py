@@ -270,10 +270,26 @@ def start_for_instrument(instrument: str) -> dict:
             return {"error": "Could not determine spot price from chain"}
 
         # Normalize strike keys to int
-        oc_norm      = {int(float(k)): v for k, v in oc.items()}
-        all_strikes  = sorted(oc_norm.keys())
-        atm_strike   = min(all_strikes, key=lambda s: abs(s - ultp))
-        atm_idx      = all_strikes.index(atm_strike)
+        oc_norm     = {int(float(k)): v for k, v in oc.items()}
+        all_strikes = sorted(oc_norm.keys())
+
+        # If option chain returned ultp=0 (market offline / pre-open),
+        # fall back to the last stored candle price, then to mid-strike.
+        if not ultp:
+            try:
+                from candle_service import get_candles
+                last = get_candles(instrument, n=1)
+                if last:
+                    ultp = float(last[-1].get("close") or 0)
+            except Exception:
+                pass
+        if not ultp and all_strikes:
+            ultp = float(all_strikes[len(all_strikes) // 2])
+        if not ultp:
+            return {"error": "Could not determine spot price from chain"}
+
+        atm_strike = min(all_strikes, key=lambda s: abs(s - ultp))
+        atm_idx    = all_strikes.index(atm_strike)
 
         lo = max(0, atm_idx - 5)
         hi = min(len(all_strikes) - 1, atm_idx + 5)

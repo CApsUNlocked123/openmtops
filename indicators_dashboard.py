@@ -246,12 +246,13 @@ def compute_trend_health(
     if len(candles) >= 2:
         last2 = candles[-2:]
         doji_count = sum(1 for c in last2 if _body(c) / _range(c) < 0.25)
-        # Also count inside bars: range < prior range
-        inside_count = 0
-        for i in range(1, len(candles)):
-            if candles[i]["high"] <= candles[i - 1]["high"] and \
-               candles[i]["low"]  >= candles[i - 1]["low"]:
-                inside_count += 1
+        # Count inside bars only in the last 2 candles (not the full 12-bar window)
+        n = len(candles)
+        inside_count = sum(
+            1 for i in range(max(1, n - 2), n)
+            if candles[i]["high"] <= candles[i - 1]["high"]
+            and candles[i]["low"]  >= candles[i - 1]["low"]
+        )
         if doji_count >= 2 or inside_count >= 2:
             score -= 10
             warnings.append("Consolidation / indecision pattern")
@@ -419,16 +420,22 @@ def build_phase_timeline(phase_log: list[dict], candles: list[dict]) -> list[dic
     if not phase_log or not candles:
         return []
 
+    def _hhmm(c: dict) -> str:
+        """Extract HH:MM from a candle time string (handles both full and short formats)."""
+        t = c.get("time", "")
+        return t[11:16] if len(t) >= 16 else t[:5]
+
     result = []
     for entry in phase_log:
         phase      = entry.get("phase", "BASE")
         start_time = entry.get("start_time", "")
         end_time   = entry.get("end_time")
 
-        # Find candles within the time window
+        # Compare only the HH:MM part of candle timestamps against HH:MM phase times
+        last_hhmm = _hhmm(candles[-1])
         window = [
             c for c in candles
-            if start_time <= c["time"] <= (end_time or candles[-1]["time"])
+            if start_time <= _hhmm(c) <= (end_time or last_hhmm)
         ]
 
         if window:

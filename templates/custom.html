@@ -10,6 +10,14 @@
 
 <div class="row justify-content-center">
   <div class="col-md-6">
+
+    {% if form.get('instrument') %}
+    <div class="alert alert-warning d-flex align-items-center gap-2 mb-3 py-2">
+      <span>🧪</span>
+      <span class="small"><strong>Test mode</strong> — form pre-filled with dummy NIFTY data. Hit <em>Start Watching</em> to run the full live trade simulation.</span>
+    </div>
+    {% endif %}
+
     <div class="card border-secondary">
       <div class="card-body">
         <form method="post" action="/custom">

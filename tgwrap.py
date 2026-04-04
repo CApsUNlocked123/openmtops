@@ -1,6 +1,5 @@
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
-from globals import API_APP, API_HASH
 import re
 import os
 import asyncio
@@ -9,8 +8,11 @@ from datetime import timezone, timedelta
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-api_id = int(API_APP)
-api_hash = API_HASH
+
+def _get_api_credentials() -> tuple[int, str]:
+    """Read Telegram API credentials at call time so runtime .env changes are picked up."""
+    from globals import API_APP, API_HASH
+    return (int(API_APP) if API_APP else 0, API_HASH or "")
 
 CHANNEL_ID = -1001881641339
 # Allow overriding session path via env var so Docker can mount it on a named volume.
@@ -67,6 +69,7 @@ def get_tips(limit=50):
 
 async def read_tips(limit=50):
     """Fetch recent tip messages from the channel."""
+    api_id, api_hash = _get_api_credentials()
     async with TelegramClient(SESSION_FILE, api_id, api_hash) as client:
         print(f"Fetching last {limit} messages from channel {CHANNEL_ID}...\n")
         async for msg in client.iter_messages(CHANNEL_ID, limit=limit):
@@ -82,6 +85,7 @@ async def read_tips(limit=50):
 
 async def listen_live():
     """Listen for new tip messages in real time."""
+    api_id, api_hash = _get_api_credentials()
     async with TelegramClient(SESSION_FILE, api_id, api_hash) as client:
         print("Listening for live tips... (Ctrl+C to stop)\n")
 
@@ -106,8 +110,9 @@ async def listen_live():
 # client in a "disconnected" state for the next call.  One long-lived loop
 # running in a daemon thread avoids all of that.
 
-_auth_loop:   asyncio.AbstractEventLoop | None = None
-_auth_client: TelegramClient | None = None
+_auth_loop:       asyncio.AbstractEventLoop | None = None
+_auth_client:     TelegramClient | None = None
+_auth_client_id:  int = 0   # api_id the current client was built with
 
 
 def _get_auth_loop() -> asyncio.AbstractEventLoop:
@@ -124,10 +129,13 @@ def _auth_run(coro, timeout: int = 30):
 
 
 async def _get_client() -> TelegramClient:
-    """Return the shared auth client, (re)connecting as needed."""
-    global _auth_client
-    if _auth_client is None:
-        _auth_client = TelegramClient(SESSION_FILE, api_id, api_hash)
+    """Return the shared auth client, recreating if credentials have changed."""
+    global _auth_client, _auth_client_id
+    api_id, api_hash = _get_api_credentials()
+    # Recreate if never built, or built with placeholder api_id=0
+    if _auth_client is None or (api_id and _auth_client_id != api_id):
+        _auth_client    = TelegramClient(SESSION_FILE, api_id, api_hash)
+        _auth_client_id = api_id
     if not _auth_client.is_connected():
         await _auth_client.connect()
     return _auth_client

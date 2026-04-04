@@ -1,0 +1,10 @@
+.env
+*.session
+*.session-journal
+__pycache__/
+*.pyc
+runtime_config.json
+data/
+logs/
+venv/
+.venv/

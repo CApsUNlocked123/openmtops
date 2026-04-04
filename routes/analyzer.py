@@ -196,7 +196,8 @@ def subscribe():
             _sio.emit("az_tick", {"sid": sid, "ltp": ltp, "oi": oi},
                       room=f"az_{sid}")
 
-    price_feed.start_feed(dhan_context, feed_instruments, on_tick=on_tick)
+    import feed_manager
+    feed_manager.subscribe("analyzer", feed_instruments, on_tick=on_tick)
     _sids_map = new_sids_map
 
     return jsonify({"ok": True, "sids_map": new_sids_map})
@@ -205,6 +206,7 @@ def subscribe():
 @bp.route("/analyzer/stop", methods=["POST"])
 def stop_feed_route():
     global _sids_map
-    price_feed.stop_feed()
+    import feed_manager
+    feed_manager.unsubscribe("analyzer")
     _sids_map = {}
     return redirect("/analyzer")

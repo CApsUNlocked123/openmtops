@@ -1,0 +1,35 @@
+# MarketMascot systemd service unit
+# Deploy: sudo cp deployment/marketmascot.service /etc/systemd/system/
+#         sudo systemctl daemon-reload
+#         sudo systemctl enable --now marketmascot
+#         sudo systemctl status marketmascot
+#
+# Logs:   sudo journalctl -u marketmascot -f
+
+[Unit]
+Description=MarketMascot Trading App
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/marketmascot
+
+# Uses the same command as the in-app restart mechanism in settings.py
+# (subprocess.Popen([sys.executable, '-m', 'flask'] + sys.argv[1:]))
+ExecStart=/home/ubuntu/marketmascot/.venv/bin/python -m flask run --host=127.0.0.1 --port=5000
+
+# Systemd restarts the service if it exits unexpectedly.
+# The in-app restart (settings.py) spawns a child then calls os._exit(0).
+# Systemd sees the parent exit, waits RestartSec, then re-launches.
+Restart=always
+RestartSec=3
+
+# Load secrets from .env (never commit this file)
+EnvironmentFile=/home/ubuntu/marketmascot/.env
+Environment=FLASK_APP=app.py
+
+StandardOutput=append:/home/ubuntu/marketmascot/logs/app.log
+StandardError=append:/home/ubuntu/marketmascot/logs/error.log
+
+[Install]
+WantedBy=multi-user.target

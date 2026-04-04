@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PIN — MarketMascot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    body { display:flex; align-items:center; justify-content:center; min-height:100vh; }
+    .pin-card { width:100%; max-width:360px; }
+    .pin-input { letter-spacing:.5em; font-size:1.5rem; text-align:center; }
+  </style>
+</head>
+<body>
+<div class="pin-card card shadow-lg">
+  <div class="card-body p-4">
+    <div class="text-center mb-4">
+      <img src="/static/assets/darkLarge.png" alt="MarketMascot" style="height:80px; margin-bottom:8px;">
+      <p class="text-secondary small mt-1 mb-0">Enter your PIN to continue</p>
+    </div>
+
+    {% if error %}
+      <div class="alert alert-danger py-2 text-center small">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="{{ request.path }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
+      <div class="mb-3">
+        <input
+          type="password"
+          name="pin"
+          class="form-control pin-input text-white"
+          placeholder="• • • •"
+          autocomplete="current-password"
+          inputmode="numeric"
+          maxlength="8"
+          autofocus
+          required
+        >
+      </div>
+      <button type="submit" class="btn btn-primary w-100">Unlock</button>
+    </form>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

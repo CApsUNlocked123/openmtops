@@ -4,6 +4,7 @@ OI Tracker — records Open Interest changes for selected strikes over time.
 State: idle → tracking → idle
 """
 
+import logging
 from datetime import datetime
 from math import floor
 from flask import Blueprint, render_template, redirect, request, jsonify, session, flash
@@ -13,6 +14,7 @@ import price_feed
 from dhan import dhan, dhan_context, lookup_security
 from dhanhq import MarketFeed
 
+log = logging.getLogger(__name__)
 bp = Blueprint("oi_tracker", __name__)
 
 # ── Server-side tracker state ─────────────────────────────────────────────────
@@ -212,6 +214,128 @@ def _on_tick(sid: str, tick: dict):
         _sio.emit("oi_update", _compute_kpis(), room="oi_tracker")
 
 
+# ── Dashboard auto-start ──────────────────────────────────────────────────────
+
+def _extract_raw_option(s: dict) -> dict:
+    """Extract fields from a raw option chain entry (before _extract_row processing)."""
+    return {
+        "security_id": str(int(s["security_id"])) if s.get("security_id") else "",
+        "oi":          int(s.get("oi") or 0),
+        "ltp":         float(s.get("last_price") or 0),
+        "iv":          float(s.get("implied_volatility") or 0),
+    }
+
+
+def start_for_instrument(instrument: str) -> dict:
+    """
+    Auto-start OI tracking for a given instrument from the dashboard.
+    Fetches the nearest weekly expiry, selects ATM±5 strikes, starts feed.
+    Skips silently if already tracking (doesn't disrupt existing session).
+    Returns {"ok": True} or {"error": "reason"}.
+    """
+    global _tracker
+
+    if _tracker.get("state") == "tracking":
+        return {"ok": True, "already_tracking": True}
+
+    try:
+        from routes.analyzer import INDICES
+        info = INDICES.get(instrument.upper())
+        if not info:
+            return {"error": f"Unknown instrument: {instrument}"}
+
+        security_id = info["security_id"]
+        lot_size    = info["lot_size"]
+        exchange    = info["exchange"]
+
+        # Fetch nearest expiry
+        resp_exp = dhan.expiry_list(security_id, dhan.INDEX)
+        if resp_exp.get("status") != "success":
+            return {"error": "Failed to fetch expiry list"}
+        expiries = resp_exp["data"]["data"]
+        if not expiries:
+            return {"error": "No expiries available"}
+        nearest_expiry = expiries[0]
+
+        # Load option chain
+        raw = dhan.option_chain(security_id, dhan.INDEX, nearest_expiry)
+        if raw.get("status") != "success":
+            return {"error": f"Failed to load chain: {raw.get('remarks', '')}"}
+
+        inner = raw["data"]["data"]
+        oc    = inner["oc"]
+        ultp  = float(inner.get("last_price") or 0)
+
+        if not ultp:
+            return {"error": "Could not determine spot price from chain"}
+
+        # Normalize strike keys to int
+        oc_norm      = {int(float(k)): v for k, v in oc.items()}
+        all_strikes  = sorted(oc_norm.keys())
+        atm_strike   = min(all_strikes, key=lambda s: abs(s - ultp))
+        atm_idx      = all_strikes.index(atm_strike)
+
+        lo = max(0, atm_idx - 5)
+        hi = min(len(all_strikes) - 1, atm_idx + 5)
+        selected_strikes = all_strikes[lo : hi + 1]
+
+        exch_mf          = MarketFeed.BSE_FNO if exchange == "BSE_FNO" else MarketFeed.NSE_FNO
+        baseline         = {}
+        current          = {}
+        sids_map         = {}
+        iv_baseline      = {}
+        feed_instruments = []
+
+        for strike in selected_strikes:
+            rec    = oc_norm.get(strike, {})
+            ce     = _extract_raw_option(rec.get("ce") or {})
+            pe     = _extract_raw_option(rec.get("pe") or {})
+            ce_sid = ce["security_id"]
+            pe_sid = pe["security_id"]
+
+            sids_map[str(strike)]    = {"ce_sid": ce_sid, "pe_sid": pe_sid}
+            iv_baseline[str(strike)] = {"ce": ce["iv"], "pe": pe["iv"]}
+
+            if ce_sid:
+                baseline[ce_sid] = {"oi": ce["oi"], "ltp": ce["ltp"]}
+                current[ce_sid]  = dict(baseline[ce_sid])
+                feed_instruments.append((exch_mf, ce_sid, MarketFeed.Full))
+            if pe_sid:
+                baseline[pe_sid] = {"oi": pe["oi"], "ltp": pe["ltp"]}
+                current[pe_sid]  = dict(baseline[pe_sid])
+                feed_instruments.append((exch_mf, pe_sid, MarketFeed.Full))
+
+        if not feed_instruments:
+            return {"error": "No security IDs found for selected strikes"}
+
+        ul_sid = str(security_id)
+        feed_instruments.append((exch_mf, ul_sid, MarketFeed.Full))
+
+        _tracker = {
+            "state":        "tracking",
+            "start_time":   datetime.now().isoformat(),
+            "sids_map":     sids_map,
+            "baseline":     baseline,
+            "current":      current,
+            "large_orders": [],
+            "lot_size":     lot_size,
+            "ultp":         ultp,
+            "ul_sid":       ul_sid,
+            "atm_strike":   atm_strike,
+            "iv_baseline":  iv_baseline,
+        }
+
+        import feed_manager
+        feed_manager.subscribe("oi_tracker", feed_instruments, on_tick=_on_tick)
+        log.info("[oi_tracker] dashboard auto-start: %s ATM=%s strikes=%s",
+                 instrument, atm_strike, selected_strikes)
+        return {"ok": True, "atm_strike": atm_strike, "strikes": selected_strikes}
+
+    except Exception as e:
+        log.error("[oi_tracker] start_for_instrument error: %s", e)
+        return {"error": str(e)}
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @bp.route("/oi_tracker")
@@ -292,7 +416,8 @@ def start_tracking():
         "iv_baseline":  iv_baseline,
     }
 
-    price_feed.start_feed(dhan_context, feed_instruments, on_tick=_on_tick)
+    import feed_manager
+    feed_manager.subscribe("oi_tracker", feed_instruments, on_tick=_on_tick)
     return jsonify({"ok": True})
 
 
@@ -307,7 +432,8 @@ def get_kpis():
 @bp.route("/oi_tracker/stop", methods=["POST"])
 def stop_tracking():
     global _tracker
-    price_feed.stop_feed()
+    import feed_manager
+    feed_manager.unsubscribe("oi_tracker")
     _tracker = {"state": "idle"}
     return redirect("/analyzer")
 

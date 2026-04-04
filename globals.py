@@ -1,7 +1,17 @@
-API_APP = "23986466"
-API_HASH = "e7a1a8955fc8a40a2c461c2063cd2e20"
-APP ="CATrader"
-DHAN_ACCESSTOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzcyNTE5Njg1LCJpYXQiOjE3NzI0MzMyODUsInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTAzMTExMDYzIn0.eDgowrcyK6qKWUWrZ2zLbisRfwi5yWt4HTTznYn7n_2e23hScPOM0nHKXi9i4ecHHsXOMo_rFRW6mewVxJyQJg"
-DHAN_CLIENTID ="1103111063"
-DHAN_APIKEY="8bff2bff"
-DHAN_APISECRET="89c53773-b201-4daf-8127-b089468d07ef"
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  # reads .env from project root (no-op if file absent)
+
+API_APP  = os.getenv("TELEGRAM_API_APP",  "")
+API_HASH = os.getenv("TELEGRAM_API_HASH", "")
+APP      = "CATrader"
+
+DHAN_ACCESSTOKEN = os.getenv("DHAN_ACCESSTOKEN", "")
+DHAN_CLIENTID    = os.getenv("DHAN_CLIENTID",    "")
+DHAN_APIKEY      = os.getenv("DHAN_APIKEY",      "")
+DHAN_APISECRET   = os.getenv("DHAN_APISECRET",   "")
+
+# ── Strategy Dashboard state ───────────────────────────────────────────────────
+PCR_SERIES: list = []   # rolling PCR readings for trend health (capped at 100)
+PHASE_LOG: list  = []   # [{phase, start_time, end_time}] — reset each trading day

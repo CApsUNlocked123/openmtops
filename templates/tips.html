@@ -18,87 +18,97 @@
 
 <hr class="border-secondary">
 
-{% if tips %}
-  <p class="text-secondary small">{{ tips|length }} tips found — click a row to select</p>
-  <div class="table-responsive mb-4">
-    <table class="table table-hover table-sm align-middle">
-      <thead class="table-dark">
-        <tr>
-          <th>Date</th><th>Symbol</th><th>Strike</th><th>Type</th>
-          <th>Entry</th><th>SL</th><th>Targets</th>
-        </tr>
-      </thead>
-      <tbody id="tips-body">
-        {% for tip in tips %}
-        <tr class="tip-row" data-idx="{{ loop.index0 }}" style="cursor:pointer;">
-          <td class="text-secondary small">{{ tip.date }}</td>
-          <td><strong>{{ tip.symbol or '—' }}</strong></td>
-          <td>{{ tip.strike or '—' }}</td>
-          <td>
-            {% if tip.type == 'CE' %}
-              <span class="badge bg-success">CE</span>
-            {% elif tip.type == 'PE' %}
-              <span class="badge bg-danger">PE</span>
-            {% else %}—{% endif %}
-          </td>
-          <td>{{ tip.entry or '—' }}</td>
-          <td>{{ tip.sl or '—' }}</td>
-          <td>{{ tip.targets | join(', ') if tip.targets else '—' }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div class="card">
+  <div class="card-body p-0">
+
+    {% if tips %}
+      <div class="px-3 pt-3 pb-2">
+        <p class="text-secondary small mb-0">{{ tips|length }} tips found — click a row to select</p>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Date</th><th>Symbol</th><th>Strike</th><th>Type</th>
+              <th>Entry</th><th>SL</th><th>Targets</th>
+            </tr>
+          </thead>
+          <tbody id="tips-body">
+            {% for tip in tips %}
+            <tr class="tip-row" data-idx="{{ loop.index0 }}" style="cursor:pointer;">
+              <td class="text-secondary small">{{ tip.date }}</td>
+              <td><strong>{{ tip.symbol or '—' }}</strong></td>
+              <td>{{ tip.strike or '—' }}</td>
+              <td>
+                {% if tip.type == 'CE' %}
+                  <span class="badge bg-success">CE</span>
+                {% elif tip.type == 'PE' %}
+                  <span class="badge bg-danger">PE</span>
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ tip.entry or '—' }}</td>
+              <td>{{ tip.sl or '—' }}</td>
+              <td>{{ tip.targets | join(', ') if tip.targets else '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="p-3">
+        <div class="alert alert-warning mb-0">No tip messages found. Try increasing the scan range.</div>
+      </div>
+    {% endif %}
+
+    <!-- Selected tip detail (hidden until row clicked) -->
+    <div id="tip-detail" class="d-none px-3 pb-3">
+      <hr style="border-color:rgba(255,255,255,0.12);">
+      <h5 class="fw-bold mb-3">Selected Tip</h5>
+      <div class="row g-3 mb-3">
+        <div class="col-md-3">
+          <div class="metric-card">
+            <div class="metric-label">Instrument</div>
+            <div class="metric-value fs-5" id="det-instrument">—</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="metric-card">
+            <div class="metric-label">Entry (above)</div>
+            <div class="metric-value" style="color:var(--purple-300);" id="det-entry">—</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="metric-card">
+            <div class="metric-label">Stop Loss</div>
+            <div class="metric-value" style="color:var(--orange-300);" id="det-sl">—</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="metric-card">
+            <div class="metric-label">Targets</div>
+            <div class="metric-value" style="color:var(--live-green);" id="det-targets">—</div>
+          </div>
+        </div>
+      </div>
+
+      <pre class="rounded p-3 small" style="background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);white-space:pre-wrap;color:var(--on-glass);" id="det-raw"></pre>
+
+      <div id="det-lookup" class="mt-3 text-secondary small"></div>
+
+      <form method="post" action="/tips/execute" id="execute-form" class="mt-3 d-none">
+        <input type="hidden" name="symbol"      id="form-symbol">
+        <input type="hidden" name="strike"      id="form-strike">
+        <input type="hidden" name="option_type" id="form-otype">
+        <input type="hidden" name="entry"       id="form-entry">
+        <input type="hidden" name="sl"          id="form-sl">
+        <input type="hidden" name="targets"     id="form-targets">
+        <button type="submit" class="btn btn-success btn-lg w-100">
+          ▶ Execute — Watch Live Price
+        </button>
+      </form>
+    </div>
+
   </div>
-{% else %}
-  <div class="alert alert-warning">No tip messages found. Try increasing the scan range.</div>
-{% endif %}
-
-<!-- Selected tip detail (hidden until row clicked) -->
-<div id="tip-detail" class="d-none">
-  <hr class="border-secondary">
-  <h5 class="fw-bold mb-3">Selected Tip</h5>
-  <div class="row g-3 mb-3">
-    <div class="col-md-3">
-      <div class="metric-card">
-        <div class="metric-label">Instrument</div>
-        <div class="metric-value fs-5" id="det-instrument">—</div>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="metric-card">
-        <div class="metric-label">Entry (above)</div>
-        <div class="metric-value text-info" id="det-entry">—</div>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="metric-card">
-        <div class="metric-label">Stop Loss</div>
-        <div class="metric-value text-danger" id="det-sl">—</div>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="metric-card">
-        <div class="metric-label">Targets</div>
-        <div class="metric-value text-success" id="det-targets">—</div>
-      </div>
-    </div>
-  </div>
-
-  <pre class="bg-dark border border-secondary rounded p-3 small" id="det-raw" style="white-space:pre-wrap;"></pre>
-
-  <div id="det-lookup" class="mt-3 text-secondary small"></div>
-
-  <form method="post" action="/tips/execute" id="execute-form" class="mt-3 d-none">
-    <input type="hidden" name="symbol"      id="form-symbol">
-    <input type="hidden" name="strike"      id="form-strike">
-    <input type="hidden" name="option_type" id="form-otype">
-    <input type="hidden" name="entry"       id="form-entry">
-    <input type="hidden" name="sl"          id="form-sl">
-    <input type="hidden" name="targets"     id="form-targets">
-    <button type="submit" class="btn btn-success btn-lg w-100">
-      ▶ Execute — Watch Live Price
-    </button>
-  </form>
 </div>
 
 <!-- Hidden tip data for JS -->

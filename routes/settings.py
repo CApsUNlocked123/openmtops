@@ -56,7 +56,7 @@ def tg_code():
         session["tg_authorized"] = True
         session.pop("tg_step", None)
         flash("Telegram authenticated successfully.", "success")
-        return redirect("/")
+        return redirect("/auth/status")
     elif result == "2fa":
         session["tg_step"] = "password"
         flash("2-FA password required.", "info")
@@ -75,7 +75,7 @@ def tg_2fa():
         session["tg_authorized"] = True
         session.pop("tg_step", None)
         flash("Telegram authenticated successfully.", "success")
-        return redirect("/")
+        return redirect("/auth/status")
     else:
         flash(f"2-FA failed: {result}", "danger")
     return redirect("/settings")

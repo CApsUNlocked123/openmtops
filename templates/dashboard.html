@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block title %}Strategy Dashboard — MarketMascot{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  .regime-sub { font-size: 0.85rem; opacity: 0.85; }
+  .kpi-card   { border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 14px 16px; }
+  .kpi-label  { font-size: 0.75rem; text-transform: uppercase; letter-spacing: .05em; color: #adb5bd; }
+  .kpi-value  { font-size: 1.5rem; font-weight: 700; }
+  #phase-timeline div { cursor: default; transition: opacity .15s; }
+  #phase-timeline div:hover { opacity: 0.8; }
+  .score-row td { vertical-align: middle; padding: 5px 8px; }
+  .score-bar { height: 8px; border-radius: 4px; background: #0d6efd; transition: width .4s; }
+  .health-bar-wrap { height: 14px; background: rgba(255,255,255,.1); border-radius: 7px; overflow: hidden; }
+  /* Charts fill their position:relative wrappers */
+  #oi-chart, #phase-chart { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+  /* Card stretches fully — no Bootstrap padding waste */
+  .card.h-100 { display: flex; flex-direction: column; }
+  .card.h-100 .card-body { flex: 1; min-height: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Controls ──────────────────────────────────────────────────────────── -->
+<div class="d-flex align-items-center gap-3 mb-3">
+  <h4 class="fw-bold mb-0">🧠 Strategy Dashboard</h4>
+  <select id="instrument-sel" class="form-select form-select-sm w-auto">
+    {% for name in instruments %}
+      <option value="{{ name }}">{{ name }}</option>
+    {% endfor %}
+  </select>
+  <span id="status-badge" class="badge bg-secondary fs-6 px-3">Loading…</span>
+  <span id="live-candle-info" class="badge bg-warning text-dark d-none ms-2"></span>
+  <small class="text-secondary ms-auto">Snapshot every 5s · OI map every 30s</small>
+</div>
+
+<!-- ── Panel 1: Regime Banner ────────────────────────────────────────────── -->
+<div id="regime-banner" class="alert alert-secondary fw-bold text-center fs-4 py-3 mb-3">
+  <div id="regime-label">Waiting for data…</div>
+  <div class="regime-sub d-flex justify-content-center gap-4 mt-1">
+    <span>Phase: <strong id="phase-label">—</strong></span>
+    <span>Velocity: <strong id="velocity-label">—</strong></span>
+    <span>Spot: <strong id="spot-price">—</strong></span>
+    <span>Candles: <strong id="candle-count">—</strong></span>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+
+  <!-- ── Panel 2: OI Battlefield ─────────────────────────────────────────── -->
+  <div class="col-md-7">
+    <div class="card border-secondary h-100">
+      <div class="card-header fw-semibold border-secondary">📊 OI Battlefield</div>
+      <div class="card-body d-flex flex-column" style="min-height:0; flex:1;">
+
+        <div id="oi-unavailable" class="text-secondary text-center py-4">
+          OI Tracker not running — start it from Analyzer to enable this panel.
+        </div>
+
+        <div id="oi-available-content" class="d-none h-100">
+          <div class="row g-2 h-100 align-items-stretch">
+            <!-- Chart — 80% width, fills full height of card-body -->
+            <div class="col-10 d-flex flex-column">
+              <div style="position:relative; flex:1; min-height:320px;">
+                <canvas id="oi-chart"></canvas>
+              </div>
+            </div>
+            <!-- PCR + Wall — 20% width -->
+            <div class="col-2 d-flex flex-column justify-content-center align-items-center gap-3 border-start border-secondary ps-2">
+              <div class="text-center">
+                <div class="kpi-label" style="font-size:0.65rem;">PCR</div>
+                <div id="pcr-value" class="fw-bold" style="font-size:1.2rem;">—</div>
+                <span id="pcr-label" class="badge bg-secondary mt-1" style="font-size:0.65rem;">—</span>
+              </div>
+              <div class="text-center" style="font-size:0.72rem; line-height:1.6;">
+                <div class="text-danger">🔴 <strong id="wall-resistance">—</strong></div>
+                <div class="text-secondary" style="font-size:0.65rem;">Resistance</div>
+                <div class="text-success mt-1">🟢 <strong id="wall-support">—</strong></div>
+                <div class="text-secondary" style="font-size:0.65rem;">Support</div>
+                <div class="text-secondary mt-2" style="font-size:0.65rem;">Nearest wall</div>
+                <div class="fw-semibold" style="font-size:0.72rem;"><strong id="wall-distance">—</strong></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Panel 3: Greeks Momentum ────────────────────────────────────────── -->
+  <div class="col-md-5">
+    <div class="card border-secondary h-100">
+      <div class="card-header fw-semibold border-secondary">⚡ Greeks Momentum</div>
+      <div class="card-body d-flex flex-column gap-3">
+
+        <!-- 4 KPI cards -->
+        <div class="row g-2">
+          <div class="col-6">
+            <div class="kpi-card">
+              <div class="kpi-label">CE OI Δ</div>
+              <div id="kpi-ce-delta" class="kpi-value text-danger">—</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="kpi-card">
+              <div class="kpi-label">PE OI Δ</div>
+              <div id="kpi-pe-delta" class="kpi-value text-success">—</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="kpi-card">
+              <div class="kpi-label">Velocity</div>
+              <div id="kpi-velocity" class="kpi-value">—</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="kpi-card">
+              <div class="kpi-label">Trend Health</div>
+              <div id="kpi-health-score" class="kpi-value">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Health progress bar -->
+        <div>
+          <div class="d-flex justify-content-between small mb-1">
+            <span class="text-secondary">Trend Health</span>
+            <span id="health-score-text" class="fw-semibold">—</span>
+          </div>
+          <div class="health-bar-wrap">
+            <div id="health-bar" class="progress-bar bg-success" style="width:0%;height:100%;transition:width .4s;"></div>
+          </div>
+        </div>
+
+        <!-- Warnings -->
+        <div>
+          <div class="text-secondary small mb-1">Warnings</div>
+          <ul id="health-warnings" class="list-unstyled small mb-0 text-warning"></ul>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Panel 4: Phase Timeline ───────────────────────────────────────────── -->
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold border-secondary">⏱ Phase Timeline (today)</div>
+  <div class="card-body p-2">
+
+    <!-- Line chart: price + EMA with phase background regions -->
+    <div style="position:relative; height:220px;" class="mb-2">
+      <canvas id="phase-chart"></canvas>
+    </div>
+
+    <!-- Phase bar (proportional segments) -->
+    <div id="phase-timeline" class="d-flex rounded overflow-hidden" style="height:28px;">
+      <div class="text-secondary small d-flex align-items-center px-3">
+        Waiting for phase data…
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="d-flex flex-wrap gap-3 mt-2 small text-secondary">
+      <span><span style="display:inline-block;width:12px;height:12px;background:#6c757d;border-radius:2px"></span> BASE</span>
+      <span><span style="display:inline-block;width:12px;height:12px;background:#ffc107;border-radius:2px"></span> BREAKOUT</span>
+      <span><span style="display:inline-block;width:12px;height:12px;background:#198754;border-radius:2px"></span> TREND RIDE ↑</span>
+      <span><span style="display:inline-block;width:12px;height:12px;background:#dc3545;border-radius:2px"></span> TREND RIDE ↓</span>
+      <span><span style="display:inline-block;width:12px;height:12px;background:#fd7e14;border-radius:2px"></span> EXHAUSTION</span>
+      <span><span style="display:inline-block;width:12px;height:12px;background:#0dcaf0;border-radius:2px"></span> REVERSAL</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Panel 5: Linear Move Scorecard ───────────────────────────────────── -->
+<div class="card border-secondary mb-3">
+  <div class="card-header fw-semibold border-secondary">📐 Linear Move Scorecard</div>
+  <div class="card-body">
+    <div class="row align-items-center g-3">
+
+      <!-- Big score number -->
+      <div class="col-md-3 text-center">
+        <div id="linear-score" class="display-2 fw-bold">—</div>
+        <div class="text-secondary small">/ 100</div>
+        <div id="move-banner" class="alert alert-secondary text-center fs-6 fw-bold mt-2 py-2">WAIT</div>
+      </div>
+
+      <!-- 6 signal rows -->
+      <div class="col-md-9">
+        <table class="table table-sm table-borderless mb-0" style="color:inherit;">
+          <tbody>
+            <tr class="score-row">
+              <td style="width:160px" class="text-secondary">EMA Slope</td>
+              <td style="width:40px" id="score-num-ema_slope" class="fw-semibold text-end">—</td>
+              <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-ema_slope" class="score-bar" style="width:0%"></div></div></td>
+            </tr>
+            <tr class="score-row">
+              <td class="text-secondary">OI Buildup</td>
+              <td id="score-num-oi_buildup" class="fw-semibold text-end">—</td>
+              <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-oi_buildup" class="score-bar" style="width:0%"></div></div></td>
+            </tr>
+            <tr class="score-row">
+              <td class="text-secondary">PCR Trend</td>
+              <td id="score-num-pcr_trend" class="fw-semibold text-end">—</td>
+              <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-pcr_trend" class="score-bar" style="width:0%"></div></div></td>
+            </tr>
+            <tr class="score-row">
+              <td class="text-secondary">IV Direction</td>
+              <td id="score-num-iv_direction" class="fw-semibold text-end">—</td>
+              <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-iv_direction" class="score-bar" style="width:0%"></div></div></td>
+            </tr>
+            <tr class="score-row">
+              <td class="text-secondary">Candle Structure</td>
+              <td id="score-num-candle_structure" class="fw-semibold text-end">—</td>
+              <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-candle_structure" class="score-bar" style="width:0%"></div></div></td>
+            </tr>
+            <tr class="score-row">
+              <td class="text-secondary">Volume Ratio</td>
+              <td id="score-num-volume_ratio" class="fw-semibold text-end">—</td>
+              <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-volume_ratio" class="score-bar" style="width:0%"></div></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

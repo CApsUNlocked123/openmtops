@@ -227,23 +227,21 @@ def _build_snapshot(instrument: str) -> dict:
         oi_direction, vol_ratio, struct_score
     )
 
-    # Phase log without internal "date" key for the frontend
-    clean_log = [
-        {"phase": e["phase"], "start_time": e["start_time"], "end_time": e.get("end_time")}
-        for e in g.PHASE_LOG
-    ]
-    timeline = build_phase_timeline(clean_log, candles_12)
-    spot     = candles_all[-1]["close"] if candles_all else None
+    spot = candles_all[-1]["close"] if candles_all else None
 
-    # Candle series for the phase line chart (all stored candles, not just last 12).
-    # Daily candles (different dates) use the date part so the x-axis is readable.
-    # Intraday candles (same date) use HH:MM so phase times align to the labels.
-    _use_date = (
-        len(candles_all) >= 2
-        and candles_all[0]["time"][:10] != candles_all[-1]["time"][:10]
-    )
+    # Per-candle phase: slide a 12-bar window over every candle so the chart
+    # has a phase label at each timestamp — no PHASE_LOG dependency.
+    phases_per_candle: list[str] = []
+    for i in range(len(candles_all)):
+        win_c = candles_all[max(0, i - 11):i + 1]
+        win_e = ema_all[max(0, i - 11):i + 1]
+        r_i   = classify_regime(win_c, win_e)
+        p_i   = classify_move_phase(win_c, win_e, oi_history, r_i)
+        phases_per_candle.append(p_i)
+
+    # Candle series for the phase line chart — full OHLC so JS can draw candlesticks
     candles_chart = [
-        {"t": c["time"][:10] if _use_date else c["time"][11:16], "c": c["close"]}
+        {"t": c["time"][11:16], "o": c["open"], "h": c["high"], "l": c["low"], "c": c["close"]}
         for c in candles_all if c.get("close") is not None
     ]
     ema_chart = [
@@ -252,20 +250,20 @@ def _build_snapshot(instrument: str) -> dict:
     ]
 
     return {
-        "active":        True,
-        "ready":         True,
-        "instrument":    instrument,
-        "candle_count":  len(candles),          # completed candles only
-        "spot":          spot,
-        "regime":        regime,
-        "velocity":      velocity,
-        "phase":         phase,
-        "trend_health":  health,
-        "linear_score":  linear,
-        "timeline":      timeline,
-        "candles_chart": candles_chart,
-        "ema_chart":     ema_chart,
-        "pcr_now":       pcr_now,
+        "active":             True,
+        "ready":              True,
+        "instrument":         instrument,
+        "candle_count":       len(candles),
+        "spot":               spot,
+        "regime":             regime,
+        "velocity":           velocity,
+        "phase":              phase,
+        "trend_health":       health,
+        "linear_score":       linear,
+        "phases_per_candle":  phases_per_candle,
+        "candles_chart":      candles_chart,
+        "ema_chart":          ema_chart,
+        "pcr_now":            pcr_now,
         "oi_available":    oi_snap is not None,
         "atm_strike":      oi_snap.get("atm_strike") if oi_snap else None,
         "total_ce_delta":  call_oi_delta,

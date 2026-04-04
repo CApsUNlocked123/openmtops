@@ -110,7 +110,103 @@ function initOIChart() {
     });
 }
 
-// ── Phase chart ───────────────────────────────────────────────────────────────
+// ── Phase colours + segment helpers ──────────────────────────────────────────
+const PHASE_COLORS = {
+    "BASE":       "#6c757d",
+    "BREAKOUT":   "#ffc107",
+    "EXHAUSTION": "#fd7e14",
+    "REVERSAL":   "#0dcaf0",
+};
+
+function _phaseColor(phase, closes, startIdx, endIdx) {
+    if (phase === "TREND_RIDE") {
+        return (closes[endIdx] ?? 0) >= (closes[startIdx] ?? 0) ? "#198754" : "#dc3545";
+    }
+    return PHASE_COLORS[phase] ?? "#6c757d";
+}
+
+// RLE-compress phases_per_candle → [{phase, startIdx, endIdx, color}]
+function _buildSegments(phases, closes) {
+    if (!phases || phases.length === 0) return [];
+    const segs = [];
+    let s = 0;
+    for (let i = 1; i <= phases.length; i++) {
+        if (i === phases.length || phases[i] !== phases[s]) {
+            const e = i - 1;
+            segs.push({ phase: phases[s], startIdx: s, endIdx: e,
+                        color: _phaseColor(phases[s], closes, s, e) });
+            s = i;
+        }
+    }
+    return segs;
+}
+
+// ── Global plugin guarded to phaseChart — beforeDraw/afterDraw only ───────────
+// beforeDatasetsDraw / afterDatasetsDraw are unreliable for chart-local plugins
+// in Chart.js 4.4; using beforeDraw + afterDraw is 100% stable.
+const _phaseChartPlugin = {
+    id: "phaseChartPlugin",
+    beforeDraw(chart) {
+        if (chart !== phaseChart) return;
+        const segs = chart._phaseSegs;
+        if (!segs || !segs.length) return;
+        const { ctx, chartArea, scales } = chart;
+        if (!scales.x || !chartArea) return;
+        const n = chart.data.labels.length;
+        ctx.save();
+        segs.forEach(r => {
+            const x0 = scales.x.getPixelForValue(r.startIdx);
+            const x1 = r.endIdx < n - 1
+                ? scales.x.getPixelForValue(r.endIdx + 1)
+                : chartArea.right;
+            ctx.fillStyle = r.color + "28";
+            ctx.fillRect(x0, chartArea.top, x1 - x0, chartArea.bottom - chartArea.top);
+        });
+        ctx.restore();
+    },
+    afterDraw(chart) {
+        if (chart !== phaseChart) return;
+        const ohlc = chart._ohlc;
+        if (!ohlc || !ohlc.length) return;
+        const { ctx, chartArea, scales } = chart;
+        if (!scales.x || !scales.y || !chartArea) return;
+        const step = ohlc.length > 1
+            ? (chartArea.right - chartArea.left) / ohlc.length : 12;
+        const barW = Math.max(2, step * 0.6);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(chartArea.left, chartArea.top,
+                 chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+        ctx.clip();
+        ohlc.forEach((d, i) => {
+            const x     = scales.x.getPixelForValue(i);
+            const yH    = scales.y.getPixelForValue(d.h);
+            const yL    = scales.y.getPixelForValue(d.l);
+            const yO    = scales.y.getPixelForValue(d.o);
+            const yC    = scales.y.getPixelForValue(d.c);
+            const bull  = d.c >= d.o;
+            const clr   = bull ? "#26a65b" : "#e74c3c";
+            const bodyY = Math.min(yO, yC);
+            const bodyH = Math.max(1.5, Math.abs(yC - yO));
+            ctx.strokeStyle = clr;
+            ctx.lineWidth   = 1;
+            ctx.beginPath();
+            ctx.moveTo(x, yH);
+            ctx.lineTo(x, yL);
+            ctx.stroke();
+            if (bull) {
+                ctx.strokeRect(x - barW / 2, bodyY, barW, bodyH);
+            } else {
+                ctx.fillStyle = clr;
+                ctx.fillRect(x - barW / 2, bodyY, barW, bodyH);
+            }
+        });
+        ctx.restore();
+    },
+};
+Chart.register(_phaseChartPlugin);
+
+// ── Phase chart init ──────────────────────────────────────────────────────────
 function initPhaseChart() {
     const ctx = document.getElementById("phase-chart");
     if (!ctx) return;
@@ -120,15 +216,16 @@ function initPhaseChart() {
             labels: [],
             datasets: [
                 {
+                    // Close line — drives y-scale; faint so candlesticks dominate visually
                     label: "Close",
                     data: [],
-                    borderColor: "#e9ecef",
-                    borderWidth: 2,
+                    borderColor: "rgba(200,200,200,0.25)",
+                    borderWidth: 1,
                     pointRadius: 0,
-                    pointHoverRadius: 4,
-                    tension: 0.3,
+                    pointHoverRadius: 0,
                     fill: false,
-                    order: 1,
+                    tension: 0,
+                    order: 10,
                 },
                 {
                     label: "EMA 9",
@@ -137,20 +234,21 @@ function initPhaseChart() {
                     borderWidth: 1.5,
                     borderDash: [4, 3],
                     pointRadius: 0,
+                    pointHoverRadius: 3,
                     tension: 0.3,
                     fill: false,
                     spanGaps: true,
                     order: 2,
                 },
                 {
-                    // Phase-start markers: colored dots at each phase transition candle
-                    label: "Phase Start",
+                    // Colored dot at the start of each phase segment
+                    label: "Phase",
                     data: [],
                     backgroundColor: [],
-                    borderColor: "#fff",
+                    borderColor: [],
                     borderWidth: 1.5,
-                    pointRadius: 7,
-                    pointHoverRadius: 9,
+                    pointRadius: 6,
+                    pointHoverRadius: 8,
                     pointStyle: "circle",
                     showLine: false,
                     spanGaps: false,
@@ -166,121 +264,89 @@ function initPhaseChart() {
             plugins: {
                 legend: {
                     labels: {
-                        color: "#adb5bd",
-                        boxWidth: 12,
-                        font: { size: 11 },
-                        filter: item => item.datasetIndex < 2,   // hide "Phase Start" from legend
+                        color: "#adb5bd", boxWidth: 12, font: { size: 11 },
+                        filter: item => item.datasetIndex === 1,
                     },
                 },
                 tooltip: {
                     callbacks: {
-                        label: ctx => {
-                            if (ctx.datasetIndex === 2 && ctx.raw != null) {
-                                const lbl = phaseChart._phasePointLabels?.[ctx.dataIndex] ?? "Phase";
-                                return `${lbl}: ₹${ctx.raw.toFixed(2)}`;
+                        title: items => items[0]?.label ?? "",
+                        label: item => {
+                            if (item.datasetIndex === 0) {
+                                const d = phaseChart._ohlc?.[item.dataIndex];
+                                if (!d) return null;
+                                return `O ${d.o.toFixed(1)}  H ${d.h.toFixed(1)}  L ${d.l.toFixed(1)}  C ${d.c.toFixed(1)}`;
                             }
-                            return `${ctx.dataset.label}: ${ctx.raw?.toFixed(2) ?? "—"}`;
+                            if (item.datasetIndex === 1 && item.raw != null)
+                                return `EMA9: ${item.raw.toFixed(2)}`;
+                            if (item.datasetIndex === 2 && item.raw != null) {
+                                const lbl = phaseChart._phasePointLabels?.[item.dataIndex];
+                                return lbl ? `● ${lbl}` : null;
+                            }
+                            return null;
                         },
                     },
                 },
             },
             scales: {
                 x: {
-                    ticks: { color: "#adb5bd", font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 },
+                    ticks: { color: "#adb5bd", font: { size: 10 }, maxRotation: 0,
+                             autoSkip: true, maxTicksLimit: 12 },
                     grid: { color: "rgba(255,255,255,.05)" },
                 },
                 y: {
                     position: "right",
                     ticks: { color: "#adb5bd", font: { size: 10 } },
-                    grid: { color: "rgba(255,255,255,.05)" },
+                    grid:  { color: "rgba(255,255,255,.05)" },
                 },
             },
         },
     });
 }
 
-function updatePhaseChart(candles, emaValues, timeline) {
+// ── Phase chart update ────────────────────────────────────────────────────────
+function updatePhaseChart(candles, emaValues, phasesPerCandle) {
     if (!phaseChart) return;
     if (!candles || candles.length === 0) return;
 
     const labels = candles.map(c => c.t);
     const closes = candles.map(c => c.c);
 
+    // Y-axis: derive min/max from actual high/low across all candles
+    const allHighs = candles.map(c => c.h ?? c.c);
+    const allLows  = candles.map(c => c.l ?? c.c);
+    const yMax = Math.max(...allHighs);
+    const yMin = Math.min(...allLows);
+    const pad  = (yMax - yMin) * 0.05;
+    phaseChart.options.scales.y.min = yMin - pad;
+    phaseChart.options.scales.y.max = yMax + pad;
+
     phaseChart.data.labels           = labels;
     phaseChart.data.datasets[0].data = closes;
     phaseChart.data.datasets[1].data = emaValues ?? [];
+    phaseChart._ohlc                 = candles;
 
-    // Phase-start scatter markers: one colored dot per phase transition
-    const phasePoints  = new Array(labels.length).fill(null);
-    const ptColors     = new Array(labels.length).fill("transparent");
-    const ptLabels     = new Array(labels.length).fill(null);
-    if (timeline) {
-        for (const t of timeline) {
-            const idx = _nearestLabelIdx(labels, t.start_time);
-            if (idx >= 0 && closes[idx] != null) {
-                phasePoints[idx] = closes[idx];
-                ptColors[idx]    = t.color;
-                ptLabels[idx]    = t.phase;
-            }
-        }
-    }
-    phaseChart.data.datasets[2].data            = phasePoints;
+    const segs = (phasesPerCandle && phasesPerCandle.length === closes.length)
+        ? _buildSegments(phasesPerCandle, closes) : [];
+    phaseChart._phaseSegs = segs;
+
+    // Colored dot at the first candle of each phase segment
+    const ptData   = new Array(labels.length).fill(null);
+    const ptColors = new Array(labels.length).fill("transparent");
+    const ptLabels = new Array(labels.length).fill(null);
+    segs.forEach(s => {
+        ptData[s.startIdx]   = closes[s.startIdx];
+        ptColors[s.startIdx] = s.color;
+        ptLabels[s.startIdx] = s.phase;
+    });
+    phaseChart.data.datasets[2].data            = ptData;
     phaseChart.data.datasets[2].backgroundColor = ptColors;
-    phaseChart.data.datasets[2].borderColor     = ptColors.map(c => c === "transparent" ? "transparent" : "#fff");
-    phaseChart._phasePointLabels                = ptLabels;
+    phaseChart.data.datasets[2].borderColor     = ptColors.map(col =>
+        col === "transparent" ? "transparent" : "#fff");
+    phaseChart._phasePointLabels = ptLabels;
 
-    // Background phase bands (colored regions)
-    phaseChart._phaseRegions = _buildPhaseRegions(labels, timeline);
     phaseChart.update("none");
 }
-
-function _buildPhaseRegions(labels, timeline) {
-    // Map each timeline entry to { startIdx, endIdx, color }
-    if (!timeline || timeline.length === 0) return [];
-    const regions = [];
-    for (const t of timeline) {
-        const startIdx = _nearestLabelIdx(labels, t.start_time);
-        if (startIdx < 0) continue;
-        const endLabel = t.end_time ?? labels[labels.length - 1];
-        const endIdx   = _nearestLabelIdx(labels, endLabel);
-        regions.push({ startIdx, endIdx: endIdx < 0 ? labels.length - 1 : endIdx, color: t.color + "33", label: t.phase });
-    }
-    return regions;
-}
-
-// Custom Chart.js plugin: draw phase background bands + label
-const phaseRegionPlugin = {
-    id: "phaseRegions",
-    beforeDraw(chart) {
-        const regions = chart._phaseRegions;
-        if (!regions || regions.length === 0) return;
-        const { ctx: c, chartArea, scales } = chart;
-        const xScale = scales.x;
-        if (!xScale) return;
-
-        regions.forEach(r => {
-            const x0 = xScale.getPixelForIndex(r.startIdx);
-            const x1 = xScale.getPixelForIndex(r.endIdx);
-            if (x0 == null || x1 == null) return;
-
-            // Shaded band
-            c.save();
-            c.fillStyle = r.color;
-            c.fillRect(x0, chartArea.top, x1 - x0, chartArea.bottom - chartArea.top);
-
-            // Phase label at top of band
-            c.fillStyle = r.color.replace("33", "cc");
-            c.font = "bold 10px sans-serif";
-            c.textAlign = "center";
-            const midX = (x0 + x1) / 2;
-            if (x1 - x0 > 28) {
-                c.fillText(r.label.substring(0, 5).toUpperCase(), midX, chartArea.top + 12);
-            }
-            c.restore();
-        });
-    },
-};
-Chart.register(phaseRegionPlugin);
 
 // ── Polling ───────────────────────────────────────────────────────────────────
 function startPolling() {
@@ -330,8 +396,8 @@ function applySnapshot(data) {
 
     updateRegimeBanner(data.regime, data.phase, data.velocity, data.spot);
     updateGreeksMomentum(data);
-    updatePhaseTimeline(data.timeline ?? []);
-    updatePhaseChart(data.candles_chart ?? [], data.ema_chart ?? [], data.timeline ?? []);
+    updatePhaseTimeline(data.phases_per_candle ?? [], data.candles_chart ?? []);
+    updatePhaseChart(data.candles_chart ?? [], data.ema_chart ?? [], data.phases_per_candle ?? []);
     updateLinearScorecard(data.linear_score);
     updateLiveCandle(data.live_candle ?? null);
 
@@ -362,17 +428,6 @@ function updateRegimeBanner(regime, phase, velocity, spot) {
     setText("phase-label",    phase ?? "—");
     setText("velocity-label", velocity ? `${velocity.type} · ${velocity.velocity} pts/bar` : "—");
     setText("spot-price",     spot != null ? spot.toFixed(2) : "—");
-}
-
-// ── Nearest label index helper ────────────────────────────────────────────────
-function _nearestLabelIdx(labels, time) {
-    if (!time || labels.length === 0) return -1;
-    const exact = labels.indexOf(time);
-    if (exact >= 0) return exact;
-    // First label >= time (rounds phase start up to the next available candle)
-    const fwd = labels.findIndex(l => l >= time);
-    if (fwd >= 0) return fwd;
-    return labels.length - 1;
 }
 
 // ── Greeks Momentum ───────────────────────────────────────────────────────────
@@ -428,32 +483,34 @@ function updateGreeksMomentum(data) {
     }
 }
 
-// ── Phase Timeline ────────────────────────────────────────────────────────────
-function updatePhaseTimeline(timeline) {
+// ── Phase Timeline bar ────────────────────────────────────────────────────────
+function updatePhaseTimeline(phasesPerCandle, candles) {
     const container = document.getElementById("phase-timeline");
-    if (!container) return;
-    if (!timeline || timeline.length === 0) return;
+    if (!container || !phasesPerCandle || phasesPerCandle.length === 0) return;
+
+    const closes = (candles ?? []).map(c => c.c);
+    const segs   = _buildSegments(phasesPerCandle, closes);
+    const total  = phasesPerCandle.length || 1;
 
     container.innerHTML = "";
-    const totalPts = timeline.reduce((s, t) => s + Math.abs(t.points_moved ?? 1), 0) || 1;
+    segs.forEach(s => {
+        const barCount = s.endIdx - s.startIdx + 1;
+        const pct      = Math.max(2, barCount / total * 100);
+        const startLbl = candles?.[s.startIdx]?.t ?? "";
+        const endLbl   = candles?.[s.endIdx]?.t   ?? "";
+        const pts      = (closes[s.endIdx] ?? 0) - (closes[s.startIdx] ?? 0);
+        const sign     = pts >= 0 ? "+" : "";
 
-    timeline.forEach(t => {
-        const pct  = Math.max(4, Math.abs(t.points_moved ?? 1) / totalPts * 100);
-        const div  = document.createElement("div");
-        const sign = (t.points_moved ?? 0) >= 0 ? "+" : "";
+        const div = document.createElement("div");
         div.style.cssText = [
             `width:${pct.toFixed(1)}%`,
-            `background:${t.color}`,
-            "display:flex",
-            "align-items:center",
-            "justify-content:center",
-            "font-size:11px",
-            "color:#fff",
-            "font-weight:600",
-            "border-right:1px solid rgba(0,0,0,.3)",
+            `background:${s.color}`,
+            "display:flex", "align-items:center", "justify-content:center",
+            "font-size:10px", "color:#fff", "font-weight:600",
+            "border-right:1px solid rgba(0,0,0,.3)", "overflow:hidden",
         ].join(";");
-        div.title = `${t.phase} · ${t.start_time}–${t.end_time ?? "now"} · ${sign}${(t.points_moved ?? 0).toFixed(1)} pts`;
-        div.textContent = t.phase.substring(0, 4).toUpperCase();
+        div.title = `${s.phase} · ${startLbl}–${endLbl} · ${sign}${pts.toFixed(1)} pts · ${barCount} bars`;
+        if (pct > 4) div.textContent = s.phase.substring(0, 4).toUpperCase();
         container.appendChild(div);
     });
 }

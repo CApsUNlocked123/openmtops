@@ -421,7 +421,7 @@ def build_phase_timeline(phase_log: list[dict], candles: list[dict]) -> list[dic
         return []
 
     def _hhmm(c: dict) -> str:
-        """Extract HH:MM from a candle time string (handles both full and short formats)."""
+        """Extract HH:MM from a candle's full datetime string."""
         t = c.get("time", "")
         return t[11:16] if len(t) >= 16 else t[:5]
 
@@ -431,7 +431,6 @@ def build_phase_timeline(phase_log: list[dict], candles: list[dict]) -> list[dic
         start_time = entry.get("start_time", "")
         end_time   = entry.get("end_time")
 
-        # Compare only the HH:MM part of candle timestamps against HH:MM phase times
         last_hhmm = _hhmm(candles[-1])
         window = [
             c for c in candles

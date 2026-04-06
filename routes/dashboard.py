@@ -27,6 +27,7 @@ from indicators_dashboard import (
     detect_oi_wall,
     build_phase_timeline,
 )
+from signal_engine import generate_signal
 
 bp = Blueprint("dashboard", __name__)
 
@@ -249,6 +250,17 @@ def _build_snapshot(instrument: str) -> dict:
         for v in ema_all
     ]
 
+    signal = generate_signal(
+        instrument   = instrument,
+        regime       = regime,
+        phase        = phase,
+        health       = health,
+        linear_score = linear,
+        velocity     = velocity,
+        oi_snap      = oi_snap,
+        spot         = spot,
+    )
+
     return {
         "active":             True,
         "ready":              True,
@@ -269,6 +281,7 @@ def _build_snapshot(instrument: str) -> dict:
         "total_ce_delta":  call_oi_delta,
         "total_pe_delta":  put_oi_delta,
         "live_candle":     live_candle,
+        "signal":          signal,
     }
 
 

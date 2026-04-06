@@ -18,6 +18,12 @@
   /* Card stretches fully — no Bootstrap padding waste */
   .card.h-100 { display: flex; flex-direction: column; }
   .card.h-100 .card-body { flex: 1; min-height: 0; }
+  @keyframes signalFlash {
+    0%   { box-shadow: 0 0 0 0 rgba(255,255,255,0.5); }
+    50%  { box-shadow: 0 0 0 8px rgba(255,255,255,0); }
+    100% { box-shadow: none; }
+  }
+  .signal-flash { animation: signalFlash 0.7s ease 2; }
 </style>
 {% endblock %}
 
@@ -44,6 +50,43 @@
     <span>Velocity: <strong id="velocity-label">—</strong></span>
     <span>Spot: <strong id="spot-price">—</strong></span>
     <span>Candles: <strong id="candle-count">—</strong></span>
+  </div>
+</div>
+
+<!-- ── Signal Card ───────────────────────────────────────────────────────── -->
+<div id="signal-card" class="card border-secondary mb-3 d-none">
+  <div class="card-body py-2 px-3">
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+
+      <!-- Action badge -->
+      <span id="signal-action-badge" class="badge fs-6 px-3 py-2"></span>
+
+      <!-- Symbol + levels (BUY only) -->
+      <div id="signal-levels" class="d-none">
+        <span class="fw-bold" id="signal-symbol" style="font-size:1.05rem;"></span>
+        <span class="ms-3 text-secondary small">Entry</span>
+        <span class="fw-semibold ms-1" id="signal-entry"></span>
+        <span class="ms-3 text-success small">Target</span>
+        <span class="fw-semibold ms-1 text-success" id="signal-target"></span>
+        <span class="ms-3 text-danger small">SL</span>
+        <span class="fw-semibold ms-1 text-danger" id="signal-sl"></span>
+      </div>
+
+      <!-- Reason text -->
+      <div class="ms-auto text-secondary small" id="signal-reason" style="max-width:420px;"></div>
+
+      <!-- Timestamp -->
+      <div class="text-secondary" style="font-size:0.72rem; white-space:nowrap;">
+        <span id="signal-time"></span>
+      </div>
+
+    </div>
+
+    <!-- Counter reasons (NO_TRADE only) -->
+    <div id="signal-counter-wrap" class="d-none mt-2">
+      <div class="text-warning small fw-semibold mb-1">⚠ Why no trade:</div>
+      <ul id="signal-counter-list" class="mb-0 small text-warning" style="padding-left:1.2rem;"></ul>
+    </div>
   </div>
 </div>
 

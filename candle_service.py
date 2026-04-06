@@ -130,7 +130,7 @@ def _fetch_and_store_all():
                 lows    = data.get("low",         [])
                 closes  = data.get("close",       [])
                 volumes = data.get("volume",      [])
-                times   = data.get("start_Time",  [])
+                times   = data.get("timestamp") or data.get("start_Time", [])
 
                 if not times:
                     log.debug("[candle_service] %s — no candle data returned", name)
@@ -278,7 +278,7 @@ def fetch_instrument(instrument: str) -> int:
         lows    = data.get("low",         [])
         closes  = data.get("close",       [])
         volumes = data.get("volume",      [])
-        times   = data.get("start_Time",  [])
+        times   = data.get("timestamp") or data.get("start_Time", [])
 
         if not times:
             return 0
@@ -352,7 +352,7 @@ def get_live_candle(instrument: str) -> dict | None:
         lows    = data.get("low",         [])
         closes  = data.get("close",       [])
         volumes = data.get("volume",      [])
-        times   = data.get("start_Time",  [])
+        times   = data.get("timestamp") or data.get("start_Time", [])
 
         if not times:
             return None

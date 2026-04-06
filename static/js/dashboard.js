@@ -400,6 +400,7 @@ function applySnapshot(data) {
     updatePhaseChart(data.candles_chart ?? [], data.ema_chart ?? [], data.phases_per_candle ?? []);
     updateLinearScorecard(data.linear_score);
     updateLiveCandle(data.live_candle ?? null);
+    updateSignalCard(data.signal ?? null);
 
     const badge = document.getElementById("status-badge");
     if (badge) {
@@ -614,6 +615,85 @@ function updateWallMarkers(wall) {
     setText("wall-support",    wall.support_strike    ?? "—");
     const dist = wall.nearest_wall_distance;
     setText("wall-distance", dist != null ? dist.toFixed(0) + " pts" : "—");
+}
+
+// ── Signal Card ───────────────────────────────────────────────────────────────
+function updateSignalCard(sig) {
+    const card         = document.getElementById("signal-card");
+    const badge        = document.getElementById("signal-action-badge");
+    const levelsEl     = document.getElementById("signal-levels");
+    const symbolEl     = document.getElementById("signal-symbol");
+    const entryEl      = document.getElementById("signal-entry");
+    const targetEl     = document.getElementById("signal-target");
+    const slEl         = document.getElementById("signal-sl");
+    const reasonEl     = document.getElementById("signal-reason");
+    const timeEl       = document.getElementById("signal-time");
+    const counterWrap  = document.getElementById("signal-counter-wrap");
+    const counterList  = document.getElementById("signal-counter-list");
+
+    if (!card || !sig) return;
+
+    const action    = sig.action ?? "WAIT";
+    const direction = sig.direction;
+    const isNew     = sig.is_new ?? false;
+
+    // Card always visible once we have data
+    card.classList.remove("d-none");
+
+    // ── Border + badge ────────────────────────────────────────────────────────
+    card.classList.remove("border-success", "border-danger", "border-warning", "border-secondary");
+    badge.classList.remove("bg-success", "bg-danger", "bg-warning", "text-dark");
+
+    if (action === "BUY") {
+        card.classList.add("border-success");
+        badge.classList.add("bg-success");
+        badge.textContent = direction === "CE" ? "📈 BUY CE" : "📉 BUY PE";
+    } else if (action === "NO_TRADE") {
+        card.classList.add("border-danger");
+        badge.classList.add("bg-danger");
+        badge.textContent = "🚫 NO TRADE";
+    } else {
+        card.classList.add("border-secondary");
+        badge.classList.add("bg-secondary");
+        badge.textContent = "⏳ WAIT";
+    }
+
+    // ── Entry / target / SL (BUY only) ───────────────────────────────────────
+    if (action === "BUY" && sig.entry != null) {
+        levelsEl.classList.remove("d-none");
+        const strike = sig.atm_strike ?? "ATM";
+        symbolEl.textContent = `${sig.instrument} ${strike} ${direction}`;
+        entryEl.textContent  = `₹${sig.entry}`;
+        targetEl.textContent = `₹${sig.target}`;
+        slEl.textContent     = `₹${sig.sl}`;
+    } else {
+        levelsEl.classList.add("d-none");
+    }
+
+    // ── Reason ────────────────────────────────────────────────────────────────
+    if (reasonEl) reasonEl.textContent = sig.reason ?? "";
+    if (timeEl)   timeEl.textContent   = sig.generated_at ? `@ ${sig.generated_at}` : "";
+
+    // ── Counter reasons ───────────────────────────────────────────────────────
+    const counters = sig.counter_reasons ?? [];
+    if (action === "NO_TRADE" && counters.length > 0) {
+        counterWrap.classList.remove("d-none");
+        counterList.innerHTML = "";
+        counters.forEach(r => {
+            const li = document.createElement("li");
+            li.textContent = r;
+            counterList.appendChild(li);
+        });
+    } else {
+        counterWrap.classList.add("d-none");
+    }
+
+    // ── Flash on new signal ───────────────────────────────────────────────────
+    if (isNew) {
+        card.classList.remove("signal-flash");
+        void card.offsetWidth;  // force reflow so animation restarts
+        card.classList.add("signal-flash");
+    }
 }
 
 // ── OI auto-start ─────────────────────────────────────────────────────────────

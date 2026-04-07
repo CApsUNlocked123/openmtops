@@ -158,20 +158,57 @@ def _collect_counter_reasons(
 
 
 def _get_entry(direction: str, oi_snap: dict | None) -> tuple[float | None, int | None]:
-    """Return (entry_price, atm_strike) from OI tracker LTP data, or (None, None)."""
+    """
+    Return (entry_price, strike) for 1 strike ITM from the live spot.
+
+    Why ITM and not ATM:
+      - ATM stored in oi_snap is fixed at tracking-start time.
+        If spot has moved since, that "ATM" is now stale OTM.
+      - Using live ultp (put-call parity, updated each tick) gives
+        the true current ATM, then we step 1 strike ITM for a
+        meaningful premium with decent delta.
+
+    CE ITM: one strike BELOW live spot  (strike < spot)
+    PE ITM: one strike ABOVE live spot  (strike > spot)
+    Falls back to stored atm_strike if ultp is unavailable.
+    """
     if not oi_snap:
         return None, None
-    atm = oi_snap.get("atm_strike")
-    if not atm:
-        return None, None
+
     rows = oi_snap.get("rows", [])
+    if not rows:
+        return None, None
+
+    strikes = sorted(r["strike"] for r in rows)
+
+    # live_ultp comes from put-call parity in oi_tracker._compute_kpis()
+    # and updates on every tick — far more current than the stored atm_strike.
+    ultp = float(oi_snap.get("ultp") or 0)
+
+    if ultp:
+        dyn_atm = min(strikes, key=lambda s: abs(s - ultp))
+        atm_idx = strikes.index(dyn_atm)
+
+        if direction == "CE":
+            target_idx = max(0, atm_idx - 1)           # 1 strike ITM = below spot
+        else:
+            target_idx = min(len(strikes) - 1, atm_idx + 1)  # 1 strike ITM = above spot
+
+        target_strike = strikes[target_idx]
+    else:
+        # No live spot — fall back to stored atm_strike
+        target_strike = oi_snap.get("atm_strike")
+        if not target_strike:
+            return None, None
+
+    key = "ce_ltp" if direction == "CE" else "pe_ltp"
     for r in rows:
-        if r.get("strike") == atm:
-            key = "ce_ltp" if direction == "CE" else "pe_ltp"
+        if r.get("strike") == target_strike:
             ltp = r.get(key, 0)
             if ltp and ltp > 0:
-                return round(float(ltp), 2), int(atm)
-    return None, int(atm) if atm else None
+                return round(float(ltp), 2), int(target_strike)
+
+    return None, int(target_strike) if target_strike else None
 
 
 def _round_premium(v: float) -> float:
@@ -215,7 +252,16 @@ def _make(
 
 
 def _dedup(instrument: str, sig: dict) -> dict:
-    """Set is_new=True only on state change or BUY cooldown expiry."""
+    """
+    Deduplication + price locking.
+
+    Rules:
+      - is_new=True on action/direction state change, or BUY cooldown reset.
+      - On a new BUY: lock entry/target/sl/atm_strike/generated_at into state.
+      - On a continuing BUY (is_new=False): restore locked prices — live LTP
+        must NOT drift the levels after the signal is already showing.
+      - NO_TRADE / WAIT have no prices to lock; pass through as-is.
+    """
     prev = _signal_state.get(instrument, {})
     now  = datetime.now()
 
@@ -223,19 +269,33 @@ def _dedup(instrument: str, sig: dict) -> dict:
         sig["action"]    != prev.get("action") or
         sig["direction"] != prev.get("direction")
     )
-    cooldown_ok = True
+
+    buy_cooldown_reset = False
     if not state_changed and sig["action"] == "BUY":
         prev_time = prev.get("time")
         if prev_time:
             elapsed = (now - prev_time).total_seconds() / 60
-            cooldown_ok = elapsed >= _COOLDOWN_MINUTES
+            buy_cooldown_reset = elapsed >= _COOLDOWN_MINUTES
 
-    if state_changed or (sig["action"] == "BUY" and cooldown_ok):
+    if state_changed or buy_cooldown_reset:
+        # New or re-issued signal — lock current prices into state
         sig["is_new"] = True
         _signal_state[instrument] = {
-            "action":    sig["action"],
-            "direction": sig["direction"],
-            "time":      now,
+            "action":       sig["action"],
+            "direction":    sig["direction"],
+            "time":         now,
+            "entry":        sig.get("entry"),
+            "target":       sig.get("target"),
+            "sl":           sig.get("sl"),
+            "atm_strike":   sig.get("atm_strike"),
+            "generated_at": sig.get("generated_at"),
         }
+    elif sig["action"] == "BUY":
+        # Continuing BUY — restore frozen levels, never let live LTP change them
+        sig["entry"]        = prev.get("entry")
+        sig["target"]       = prev.get("target")
+        sig["sl"]           = prev.get("sl")
+        sig["atm_strike"]   = prev.get("atm_strike")
+        sig["generated_at"] = prev.get("generated_at")
 
     return sig

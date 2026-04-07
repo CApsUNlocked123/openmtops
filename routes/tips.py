@@ -1,8 +1,48 @@
 from flask import Blueprint, render_template, request, redirect, session, flash, jsonify
 from tgwrap import get_tips
 from dhan import dhan, lookup_security
+import os
 
 bp = Blueprint("tips", __name__)
+
+# ── External API ───────────────────────────────────────────────────────────────
+
+@bp.route("/api/tips")
+def api_tips():
+    """
+    JSON endpoint for external apps (e.g. Flutter).
+
+    Query params:
+      limit    int  Max messages to scan (default 50).
+      refresh  any  If present, bypass the server-side cache.
+      key      str  Optional API key check (set API_KEY in .env to enable).
+
+    Response 200:
+      { "ok": true, "tips": [ { symbol, strike, type, entry, sl,
+                                 targets, raw, date, msg_id } ] }
+    Response 401:
+      { "ok": false, "error": "Unauthorized" }
+    Response 500:
+      { "ok": false, "error": "<message>" }
+    """
+    api_key = os.getenv("API_KEY")
+    if api_key:
+        provided = request.headers.get("X-Api-Key") or request.args.get("key")
+        if provided != api_key:
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+    limit = int(request.args.get("limit", 50))
+    cache_key = f"api_tips_{limit}"
+
+    if "refresh" not in request.args and cache_key in session:
+        return jsonify({"ok": True, "tips": session[cache_key], "cached": True})
+
+    try:
+        tips = get_tips(limit=limit)
+        session[cache_key] = tips
+        return jsonify({"ok": True, "tips": tips, "cached": False})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/tips")

@@ -1,0 +1,1809 @@
+================================================================================
+PRODUCT REQUIREMENTS DOCUMENT
+MarketMascot Mobile — Flutter Android App + FastAPI Backend
+Version 2.0  |  Date: April 2026
+================================================================================
+
+OVERVIEW
+--------
+A Flutter Android app for Indian index option trading via Dhan, backed by a
+thin FastAPI service running on a Linux VM.
+
+Flutter owns all heavy computation:
+  - Indicator calculation (7 functions ported from Python to Dart)
+  - Signal engine logic
+  - Dhan REST + WebSocket calls (candles, OI, orders)
+  - Telegram Bot API calls (tips)
+  - Live trade state machine
+
+FastAPI backend is intentionally thin — no WebSockets, no computation:
+  - User registration + JWT auth
+  - Trade history sync (POST after exit, GET for history)
+  - Local push notification trigger (optional v1)
+  - Health check endpoint
+
+No Flask-style WebSocket complexity in the backend at all.
+All real-time data flows Flutter <-> Dhan directly.
+
+Target: Android 8.0+ (API 26+), single-platform Flutter build.
+Backend: Python 3.11+, FastAPI, PostgreSQL 16, deployed on existing Linux VM.
+
+
+--------------------------------------------------------------------------------
+ARCHITECTURE OVERVIEW
+--------------------------------------------------------------------------------
+
+  Flutter App (Android)
+    |
+    +-- Dhan REST API (direct)        candles, OI chain, orders, fund limit
+    +-- Dhan WebSocket (direct)       live LTP feed during trade session
+    +-- Telegram Bot API (direct)     tip polling every 5 min
+    +-- Local SQLite                  candle cache, offline trade history,
+    |                                 instrument master, tips cache
+    +-- FastAPI Backend (your VM)
+          +-- POST /auth/register     create account
+          +-- POST /auth/login        get JWT tokens
+          +-- POST /auth/refresh      renew access token
+          +-- POST /auth/logout       invalidate refresh token
+          +-- GET  /trades            fetch synced trade history
+          +-- POST /trades            save completed trade (called after exit)
+          +-- DELETE /trades/{id}     delete a trade record
+          +-- GET  /trades/stats      today / weekly / all-time P&L summary
+          +-- GET  /health            liveness check
+
+
+--------------------------------------------------------------------------------
+ARCHITECTURE PRINCIPLES
+--------------------------------------------------------------------------------
+
+1. FLUTTER OWNS ALL REAL-TIME COMPUTATION
+   - Candle fetching, EMA, regime, phase, health, score, signal -- all in Dart.
+   - No server round-trip on the hot path (5s dashboard refresh).
+   - Dashboard works fully offline (last cached candles).
+
+2. FASTAPI IS A THIN DATA LAYER ONLY
+   - No WebSockets on the backend.
+   - No indicator computation on the backend.
+   - No Dhan API calls on the backend.
+   - Only persists and serves structured records (users, trades).
+   - ~300 lines of Python total for v1.
+
+3. DUAL PERSISTENCE
+   - SQLite (local): candles, instrument master, tips cache, trade draft.
+   - PostgreSQL (server): confirmed completed trades, user accounts.
+   - On trade exit: Flutter writes SQLite first, then syncs to FastAPI.
+   - If offline: local SQLite is source of truth; sync when reconnected.
+
+4. DIRECT DHAN REST API FROM FLUTTER
+   - Base URL: https://api.dhan.co
+   - Auth headers set once in dio interceptor:
+       client-id: <CLIENT_ID>
+       access-token: <ACCESS_TOKEN>
+   - Each user stores their own Dhan credentials (encrypted, AES-256).
+
+5. TELEGRAM VIA BOT API (no MTProto complexity)
+   - User creates a bot, adds it to channel as admin.
+   - App polls GET /getUpdates every 5 min (tips screen open).
+   - Bot token stored encrypted in local SQLite.
+
+6. JWT AUTH FLOW
+   - access_token:  1-hour expiry, stored in flutter_secure_storage.
+   - refresh_token: 30-day expiry, stored in flutter_secure_storage.
+   - dio interceptor auto-refreshes access_token on 401.
+   - Logout: DELETE refresh token from server + clear secure storage.
+
+7. LOCAL NOTIFICATIONS (no FCM for v1)
+   - flutter_local_notifications handles SL hit, target hit, new BUY signal.
+   - Foreground service keeps trade monitoring alive when app is backgrounded.
+   - FCM (server-push) deferred to v2 (requires Firebase project setup).
+
+
+--------------------------------------------------------------------------------
+MODULE 1 -- USER ACCOUNTS & AUTHENTICATION
+--------------------------------------------------------------------------------
+
+DESCRIPTION
+  Hybrid auth: local PIN for quick device access + server JWT for trade sync.
+  On first launch user registers on FastAPI -> gets JWT -> stored securely.
+  PIN is a device-level shortcut; it does not replace the server account.
+
+SCREENS
+  1.1  Splash / Account Picker Screen (app launch)
+       - If no accounts registered: show "Get Started" -> Register Screen.
+       - If accounts exist: show list of saved profiles (name + avatar initial).
+       - "Add Account" button at bottom.
+       - Tap account -> PIN Entry Screen.
+
+  1.2  Register Screen
+       - Fields:
+           Name         (text, 2-40 chars)
+           Email        (text, validated format)
+           Password     (text, obscured, min 8 chars)
+           Confirm Pwd  (text, must match)
+           PIN          (4-digit numpad, confirmed twice)
+       - "Register" button -> POST /auth/register -> save JWT in secure_storage.
+       - On success: navigate to Dhan Credential Setup.
+
+  1.3  Login Screen (returning user, new device)
+       - Email + Password fields.
+       - "Login" -> POST /auth/login -> save tokens -> PIN setup for this device.
+
+  1.4  PIN Entry Screen
+       - 4-digit numpad overlay (full-screen modal).
+       - 3 wrong attempts -> lock for 5 min (stored in SharedPreferences).
+       - On success: decrypt Dhan access_token from SQLite -> set in dio.
+       - Biometric unlock option (local_auth package) -- optional, toggle in settings.
+
+  1.5  Account Settings Screen
+       - Change PIN.
+       - Change Password (requires current password -> PUT /auth/password).
+       - Delete account (with confirmation -> DELETE /auth/account).
+       - Link / update Dhan credentials.
+       - Link Telegram.
+       - Logout (clears tokens + redirects to Login).
+
+LOCAL SQLITE SCHEMA -- users table
+  CREATE TABLE users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id     TEXT,              -- UUID from FastAPI (null until registered)
+    name          TEXT NOT NULL,
+    email         TEXT,
+    pin_hash      TEXT NOT NULL,     -- SHA-256(PIN + email salt)
+    avatar_color  TEXT,              -- hex colour for avatar initial
+    created_at    TEXT NOT NULL,
+    last_login    TEXT
+  );
+
+LOCAL SQLITE SCHEMA -- dhan_credentials table
+  CREATE TABLE dhan_credentials (
+    user_id       INTEGER PRIMARY KEY REFERENCES users(id),
+    client_id     TEXT NOT NULL,
+    access_token  TEXT NOT NULL,     -- AES-256-CBC encrypted, key = PIN hash
+    last_verified TEXT,
+    status        TEXT DEFAULT 'unverified'   -- 'ok' | 'expired' | 'unverified'
+  );
+
+LOCAL SQLITE SCHEMA -- telegram_sessions table
+  CREATE TABLE telegram_sessions (
+    user_id        INTEGER PRIMARY KEY REFERENCES users(id),
+    bot_token      TEXT,             -- AES-256 encrypted
+    channel_id     TEXT,
+    last_update_id INTEGER DEFAULT 0
+  );
+
+LOCAL SQLITE SCHEMA -- auth_tokens table
+  CREATE TABLE auth_tokens (
+    user_id        INTEGER PRIMARY KEY REFERENCES users(id),
+    access_token   TEXT,             -- JWT, short-lived (1 hour)
+    refresh_token  TEXT,             -- JWT, long-lived (30 days)
+    expires_at     TEXT              -- ISO timestamp of access_token expiry
+  );
+
+
+--------------------------------------------------------------------------------
+MODULE 2 -- DHAN ACCOUNT LINKING & TRADE EXECUTION
+--------------------------------------------------------------------------------
+
+DESCRIPTION
+  Each user links exactly one Dhan account. Credentials are encrypted in SQLite.
+  Trade flow: idle -> watching -> ordering -> active -> exiting -> idle (same as web).
+
+2A. DHAN CREDENTIAL SETUP
+  Screen: Link Dhan Account
+  - Fields: Client ID (text), Access Token (text, long, obscured).
+  - "Test Connection" button:
+      -> GET /fundlimit with provided creds
+      -> On success: shows "Balance: Rs.XX,XXX" in green.
+      -> On failure: shows error code from Dhan API.
+  - On save: UPSERT into dhan_credentials (AES encrypt access_token), status='ok'.
+  - Re-verification: tap "Re-verify" any time (e.g., after token expiry).
+
+  Dhan REST: GET https://api.dhan.co/fundlimit
+  Headers: client-id: <CLIENT_ID>   access-token: <ACCESS_TOKEN>
+  Response: { "availabelBalance": float, "withdrawableBalance": float }
+
+2B. CUSTOM TRADE SETUP SCREEN
+  Mirrors web app /custom form exactly.
+
+  Fields:
+    Instrument    (dropdown): NIFTY | BANKNIFTY | FINNIFTY | MIDCPNIFTY | SENSEX
+    Strike        (number input, integer)
+    Option Type   (toggle CE / PE)
+    Entry Price   (decimal): buy trigger -- enter when LTP crosses above this value
+    Stop Loss     (decimal): must be < entry
+    Targets       (up to 3, comma-separated): e.g. "180, 220"
+    Lots Mode     (toggle Auto / Manual)
+    Lots          (integer, visible only when Manual mode)
+
+  Validation:
+    - SL must be < entry price.
+    - Target(s) must be > entry price.
+    - If auto lots: entry price required first (used for lot calc).
+    - Strike must exist in instrument_master for today's expiry.
+
+  On "Confirm" tap:
+    Step 1 -- Instrument lookup:
+      - Query local SQLite instrument_master for matching row:
+          WHERE instrument_name = 'OPTIDX'
+            AND trading_symbol LIKE '%<NIFTY_SYMBOL>%'
+            AND ABS(strike_price - <strike>) < 1
+            AND option_type = '<CE|PE>'
+            AND expiry_date >= date('now')
+          ORDER BY expiry_date ASC LIMIT 1
+      - If no match or last_updated < today: re-download CSV, re-query.
+      - Result fields needed: security_id, trading_symbol, lot_size, expiry_date.
+
+    Step 2 -- Auto lot calculation (if auto mode):
+      - GET /fundlimit -> availableBalance
+      - lots = floor((balance / 2) / (entry x lot_size))
+      - lots = max(1, min(lots, 20))    -- cap at 20 lots
+
+    Step 3 -- Navigate to Live Trade Screen with params:
+      { instrument, strike, optionType, tradingSymbol, securityId,
+        lotSize, lots, quantity (= lots x lotSize),
+        entry, sl, targets: [t1, t2?, t3?] }
+
+  Instrument Master CSV:
+    URL: https://images.dhan.co/api-data/api-scrip-master.csv
+    Download: once per trading day (check last_updated date in SQLite).
+    Relevant columns:
+      SEM_TRADING_SYMBOL    -> trading_symbol
+      SEM_SMST_SECURITY_ID  -> security_id
+      SEM_STRIKE_PRICE      -> strike_price
+      SEM_OPTION_TYPE       -> option_type  ('CE' or 'PE')
+      SEM_INSTRUMENT_NAME   -> instrument_name (filter = 'OPTIDX')
+      SEM_EXPIRY_DATE       -> expiry_date  (format: "DD-MMM-YYYY")
+      SEM_LOT_UNITS         -> lot_size
+      SEM_EXM_EXCH_ID       -> exchange     ('NSE' or 'BSE')
+    Parse with Dart `csv` package. Store ~50k rows in SQLite.
+    Index: CREATE INDEX idx_master ON instrument_master(instrument_name, option_type, expiry_date);
+
+  LOCAL SQLITE SCHEMA -- instrument_master table:
+    CREATE TABLE instrument_master (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      trading_symbol   TEXT,
+      security_id      TEXT,
+      strike_price     REAL,
+      option_type      TEXT,
+      instrument_name  TEXT,
+      expiry_date      TEXT,
+      lot_size         INTEGER,
+      exchange         TEXT,
+      last_updated     TEXT
+    );
+    CREATE INDEX idx_master ON instrument_master(instrument_name, option_type, expiry_date);
+
+2C. LIVE TRADE SCREEN
+  Mirrors web app /live page in full detail.
+
+  Header:
+    Trading symbol (e.g., NIFTY2540722900PE)
+    Expiry date + CE/PE badge + lots x lot_size = total qty
+    State banner: WATCHING | ORDERING | ACTIVE | EXITING (colour-coded)
+
+  Price section:
+    Live LTP (large, colour green/red vs entry)
+    Entry trigger  <- from setup
+    Buy zone upper = (entry + target[0]) / 2
+    Progress bar: entry -> target (fills as LTP moves toward target)
+
+  Trade params:
+    Buy Price   (shown once ACTIVE)
+    Stop Loss   (updates when trailed -- highlighted when changed)
+    Target 1    (strikethrough when hit)
+    Target 2    (if set, dims after T1 hit)
+    Order ID    (shown once ordered)
+    P&L         (live, large, green/red -- shown once ACTIVE)
+
+  Buttons:
+    WATCHING: "Cancel" (back to custom screen)
+    ACTIVE:   "Manual Exit" (red, triggers SELL MARKET)
+
+  WebSocket Feed (Dhan MarketFeed):
+    URL: wss://api-feed.dhan.co
+    Connection lifecycle:
+      - Connect on screen open (WATCHING state)
+      - Disconnect on trade exit or screen pop
+    Auth packet (send immediately after connect):
+      {
+        "LoginReq": {
+          "MsgCode": 11,
+          "ClientId": "<CLIENT_ID>",
+          "Token": "<ACCESS_TOKEN>"
+        }
+      }
+    Subscribe packet (send after auth ACK):
+      {
+        "RequestCode": 21,
+        "InstrumentCount": 1,
+        "InstrumentList": [
+          {
+            "ExchangeSegment": "NSE_FNO",
+            "SecurityId": "<SECURITY_ID>"
+          }
+        ]
+      }
+    Incoming tick (binary, parse with ByteData):
+      Offset  0: uint8  feed_response_code (= 2 for Quote)
+      Offset  1: uint8  message_length
+      Offset  2-9: uint8[8] exchange_segment + security_id
+      Offset 10-13: float32 LTP
+      Offset 14-17: float32 LTT (epoch)
+      Offset 18-21: float32 LTQ
+      Offset 22-25: float32 avg_trade_price
+      Offset 26-29: float32 volume
+      Offset 30-33: float32 total_sell_qty
+      Offset 34-37: float32 total_buy_qty
+      Offset 38-41: float32 open
+      Offset 42-45: float32 close (prev day)
+      Offset 46-49: float32 high
+      Offset 50-53: float32 low
+      Offset 54-57: float32 change_percent
+    Reconnect: exponential backoff 1s -> 2s -> 4s -> 8s -> 30s (max).
+    Re-subscribe after reconnect.
+
+  State Machine (identical to Python web app logic):
+
+    WATCHING:
+      On each tick:
+        if ltp > entry AND ltp < buyZoneUpper:
+          -> place BUY MARKET order -> state = ORDERING
+
+    ORDERING:
+      Wait for order status confirmation:
+        Poll GET /orders/<orderId> every 2s until status = 'TRADED'
+        On TRADED: set buyPrice = ltp (or fill price from order),
+                   state = ACTIVE
+        On REJECTED/CANCELLED: state = WATCHING (retry allowed)
+        Timeout 30s: show error banner, stay WATCHING
+
+    ACTIVE:
+      On each tick:
+        Trailing SL logic:
+          bar = target1 - buyPrice
+          if ltp >= buyPrice + (bar / 2) AND NOT trailed:
+            newSL = round(buyPrice + (bar / 4), 0.5)
+            update sl = newSL, trailed = true
+            show "SL Trailed to <newSL>" local notification
+
+        SL check:  if ltp <= sl -> trigger exit (reason = 'SL')
+        T1 check:  if ltp >= targets[0]:
+                     if targets.length == 1: trigger exit (reason = 'TARGET')
+                     else: sell 50% qty -> order, move SL = midpoint,
+                           t1Hit = true, show T1 notification
+        T2 check:  if t1Hit AND ltp >= targets[1]:
+                     trigger exit remaining qty (reason = 'TARGET2')
+
+      Manual exit: user taps "Manual Exit" -> trigger exit (reason = 'MANUAL')
+
+    EXITING:
+      Place SELL MARKET order for remaining qty.
+      Poll order status until TRADED.
+      On TRADED:
+        exitPrice = fill price
+        pnl = (exitPrice - buyPrice) x quantity
+        Save to local SQLite trades table.
+        POST to FastAPI /trades (sync).
+        Show local notification: "Trade closed -- P&L: Rs.<pnl>"
+        Navigate to Trade Summary Screen.
+      On failure: banner "Exit failed -- retrying", stay ACTIVE.
+
+  Dhan REST -- Place Order:
+    POST https://api.dhan.co/orders
+    Body:
+    {
+      "dhanClientId":      "<CLIENT_ID>",
+      "transactionType":   "BUY" | "SELL",
+      "exchangeSegment":   "NSE_FNO",
+      "productType":       "INTRADAY",
+      "orderType":         "MARKET",
+      "validity":          "DAY",
+      "securityId":        "<SECURITY_ID>",
+      "quantity":          <int>,
+      "price":             0,
+      "triggerPrice":      0,
+      "disclosedQuantity": 0,
+      "afterMarketOrder":  false
+    }
+    Response: { "orderId": str, "orderStatus": str }
+
+  Dhan REST -- Order Status:
+    GET https://api.dhan.co/orders/<orderId>
+    Response: {
+      "orderId": str,
+      "orderStatus": "PENDING" | "TRADED" | "REJECTED" | "CANCELLED",
+      "tradedPrice": float,
+      "tradedQuantity": int
+    }
+
+2D. TRADE SUMMARY SCREEN
+  Shown after exit completes.
+  Fields:
+    Symbol + expiry + direction (CE/PE)
+    Buy Price | Exit Price | P&L (large, green/red)
+    Exit reason: SL HIT | TARGET 1 | TARGET 2 | MANUAL EXIT
+    Quantity x lot_size, Lots
+    Entry trigger | Stop Loss | Target(s)
+    Duration (entry_time to exit_time)
+    Order ID + Exit Order ID
+  Buttons:
+    "View History" -> Trade History Screen
+    "New Trade"    -> Custom Trade Setup Screen
+
+2E. TRADE HISTORY SCREEN
+  Top card: P&L summary tabs -- Today / This Week / All Time
+    - Total P&L (green/red)
+    - Win rate (trades with pnl > 0 / total trades)
+    - Avg P&L per trade
+    - Best trade / Worst trade
+
+  Trade list (paginated, 20 per page):
+    Each row: date-time | symbol | CE/PE | P&L | exit reason badge
+    Tap -> full trade detail (same layout as Trade Summary)
+
+  Filters:
+    Date range picker
+    Instrument (NIFTY / BANKNIFTY / etc.)
+    Outcome (Win / Loss / All)
+    Exit reason (SL / TARGET / MANUAL)
+
+  Export:
+    "Export CSV" button -> generates CSV, shares via Android share sheet.
+    CSV columns: date, time, symbol, direction, buy_price, exit_price,
+                 pnl, lots, quantity, sl, targets, exit_reason,
+                 order_id, exit_order_id
+
+  Sync indicator:
+    Small chip "Synced" / "Pending sync" in header.
+    If pending trades in SQLite not yet POSTed to server:
+      Retry button -> sync now.
+
+  LOCAL SQLITE SCHEMA -- trades table:
+    CREATE TABLE trades (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id         INTEGER REFERENCES users(id),
+      server_id       TEXT,              -- UUID from FastAPI after sync
+      trading_symbol  TEXT,
+      security_id     TEXT,
+      instrument      TEXT,
+      strike          INTEGER,
+      option_type     TEXT,
+      entry_trigger   REAL,
+      buy_price       REAL,
+      exit_price      REAL,
+      quantity        INTEGER,
+      lots            INTEGER,
+      lot_size        INTEGER,
+      sl              REAL,
+      targets         TEXT,              -- JSON array e.g. "[180.0, 220.0]"
+      pnl             REAL,
+      exit_reason     TEXT,              -- 'SL'|'TARGET'|'TARGET2'|'MANUAL'
+      entry_time      TEXT,              -- ISO datetime IST
+      exit_time       TEXT,
+      order_id        TEXT,
+      exit_order_id   TEXT,
+      synced          INTEGER DEFAULT 0  -- 0 = pending, 1 = synced to server
+    );
+    CREATE INDEX idx_trades_user ON trades(user_id, exit_time DESC);
+
+
+--------------------------------------------------------------------------------
+MODULE 3 -- TELEGRAM TIPS
+--------------------------------------------------------------------------------
+
+DESCRIPTION
+  App reads trading tips from a Telegram channel via Bot API.
+  User creates a bot (@BotFather), adds it as admin to the channel.
+  App polls for new messages every 5 min (when tips screen is visible).
+
+3A. TELEGRAM SETUP SCREEN
+  Fields:
+    Bot Token   (text, obscured) -- from @BotFather
+    Channel ID  (text) -- "@channelname" or numeric "-1001234567890"
+  Buttons:
+    "Test" -> calls GET /getMe (validate token) + GET /getUpdates (show count)
+    "Save" -> encrypt bot_token with AES-256, store in telegram_sessions
+
+  Test flow:
+    1. GET https://api.telegram.org/bot<TOKEN>/getMe
+       -> verify response ok=true, show bot username
+    2. GET .../getUpdates?limit=1
+       -> show "Last message: <date>" or "No messages yet"
+
+3B. TIPS LIST SCREEN
+  Header: channel name + "Last synced: <time>" chip
+  Pull-to-refresh -> fetch latest messages.
+  Auto-refresh: every 5 min while screen is visible (Timer.periodic).
+
+  Fetch flow:
+    GET .../getUpdates?offset=<last_update_id+1>&limit=50&allowed_updates=["channel_post"]
+    For each update:
+      Extract message text + date + message_id.
+      Run is_tip() filter.
+      If is_tip -> run parse_tip() -> upsert into tips_cache.
+    Update last_update_id in SQLite telegram_sessions.
+
+  is_tip(text):
+    - text must start with '#' (after stripping whitespace)
+    - text (lowercase) must contain at least one of:
+        'sl', 'stoploss', 'stop loss', 'target', 'pe', 'ce', 'call', 'put'
+
+  parse_tip(text):
+    symbol:    regex #([A-Z]+)  (first hashtag word, uppercased)
+    strike:    regex \b(\d{4,6})\b  (first 4-6 digit number)
+    opt_type:  regex \b(PE|CE)\b  (case-insensitive, first match)
+    entry:     regex (?:above|entry|buy\s*above)\s*([\d.]+)  (first match)
+    sl:        regex (?:sl|stoploss|stop\s*loss)\s*[:\-]?\s*([\d.]+)  (first)
+    targets:   regex (?:target|tgt)\s*[:\-]?\s*([\d./]+)
+               split result on '/' -> list of strings
+    raw:       full message text
+    date:      epoch -> IST formatted "DD MMM YYYY HH:MM"
+    msg_id:    Telegram message_id (for deduplication)
+
+  Tip Card UI (card per tip, newest first):
+    Row 1: #NIFTY badge (coloured) | 22900 | CE/PE badge | date-time
+    Row 2: Entry: 160  .  SL: 145  .  T1: 180  .  T2: 210
+    Row 3 (truncated, expandable): raw message text (2 lines, tap to expand)
+    Bottom-right: "Execute" button (filled, primary colour)
+
+  Execute flow:
+    1. Tap "Execute" on tip card.
+    2. Navigate to Custom Trade Setup Screen pre-filled:
+         instrument = tip.symbol
+         strike     = tip.strike
+         option_type= tip.opt_type
+         entry      = tip.entry
+         sl         = tip.sl
+         targets    = tip.targets.join(", ")
+    3. User reviews params, adjusts lots.
+    4. Confirms -> Live Trade Screen.
+
+  LOCAL SQLITE SCHEMA -- tips_cache table:
+    CREATE TABLE tips_cache (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER REFERENCES users(id),
+      msg_id     INTEGER NOT NULL,
+      symbol     TEXT,
+      strike     TEXT,
+      opt_type   TEXT,
+      entry      TEXT,
+      sl         TEXT,
+      targets    TEXT,        -- JSON array e.g. '["180","220"]'
+      raw        TEXT,
+      date_str   TEXT,
+      fetched_at TEXT,
+      UNIQUE(user_id, msg_id)
+    );
+    CREATE INDEX idx_tips ON tips_cache(user_id, fetched_at DESC);
+
+
+--------------------------------------------------------------------------------
+MODULE 4 -- STRATEGY DASHBOARD
+--------------------------------------------------------------------------------
+
+DESCRIPTION
+  Real-time strategy dashboard mirroring the web app strategy page.
+  All computation in Dart. Candles from Dhan API, cached in SQLite.
+  5s refresh cycle; OI refresh every 30s.
+
+4A. DATA PIPELINE
+
+  Candle fetch schedule:
+    On screen open:
+      - Load last 50 candles from SQLite for selected instrument.
+      - If < 6 candles: trigger immediate API fetch.
+    Every 5-min boundary + 35s:
+      - Fetch completed 5-min candles for today.
+      - UPSERT into SQLite.
+    Every 5s (live partial bar):
+      - Fetch 1-min candles from current 5-min boundary to now.
+      - Aggregate into partial OHLCV bar (do not persist).
+      - Use for latest close/spot price.
+
+  Candle API:
+    GET https://api.dhan.co/charts/intraday
+    Params:
+      securityId       = <index_id>  (NIFTY=13, BANKNIFTY=25, FINNIFTY=27,
+                                      MIDCPNIFTY=442, SENSEX=51)
+      exchangeSegment  = IDX_I
+      instrument       = INDEX
+      interval         = 5 (or 1 for live partial)
+      fromDate         = YYYY-MM-DD (today)
+      toDate           = YYYY-MM-DD (today)
+    Response:
+      { "timestamp": [epoch, ...],  <- NOTE: "timestamp" not "start_Time"
+        "open": [...], "high": [...], "low": [...],
+        "close": [...], "volume": [...] }
+    Epoch conversion: epoch_seconds -> DateTime.fromMillisecondsSinceEpoch(
+                        epoch * 1000, isUtc: true).toLocal()
+                      -> format "YYYY-MM-DD HH:MM:SS" (IST UTC+5:30)
+
+  OI fetch schedule (when OI tracking enabled):
+    Step 1 -- Get expiry:
+      GET https://api.dhan.co/optionchain/expirylist
+      Params: underlyingSecurity=<id>, underlyingType=INDEX
+      Response: { "data": { "data": ["DD-MM-YYYY", ...] } }
+      -> pick soonest date >= today
+
+    Step 2 -- Get option chain:
+      POST https://api.dhan.co/v2/optionchain
+      Body: {
+        "UnderlyingScrip":   <int>,
+        "UnderlyingSegment": "IDX_I",
+        "Expiry":            "YYYY-MM-DD"
+      }
+      Response: {
+        "data": {
+          "last_price": float,
+          "oc": {
+            "<STRIKE>": {
+              "ce": { "oi": int, "volume": int, "iv": float, "ltp": float, ... },
+              "pe": { "oi": int, "volume": int, "iv": float, "ltp": float, ... }
+            },
+            ...
+          }
+        }
+      }
+    Parse: ATM = strike nearest to last_price.
+    Extract ATM +/- 5 strikes.
+    For each strike: ce_oi, pe_oi, ce_ltp, pe_ltp, ce_iv, pe_iv.
+    Compute: total_ce_oi, total_pe_oi, pcr = total_pe_oi / total_ce_oi.
+    Track prev snapshot for delta (ce_delta, pe_delta).
+
+  LOCAL SQLITE SCHEMA -- candles table:
+    CREATE TABLE candles (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      instrument  TEXT NOT NULL,
+      interval_m  INTEGER NOT NULL,
+      time        TEXT NOT NULL,
+      open        REAL,
+      high        REAL,
+      low         REAL,
+      close       REAL,
+      volume      INTEGER,
+      UNIQUE(instrument, interval_m, time)
+    );
+    CREATE INDEX idx_candles ON candles(instrument, interval_m, time DESC);
+
+  LOCAL SQLITE SCHEMA -- oi_snapshots table (optional, for OI delta calc):
+    CREATE TABLE oi_snapshots (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      instrument  TEXT NOT NULL,
+      snapshot_at TEXT NOT NULL,
+      strike      INTEGER,
+      ce_oi       INTEGER,
+      pe_oi       INTEGER,
+      ce_ltp      REAL,
+      pe_ltp      REAL,
+      ce_iv       REAL,
+      pe_iv       REAL
+    );
+
+4B. INDICATOR COMPUTATION (port from indicators_dashboard.py)
+
+  File: lib/indicators/indicators.dart
+  All functions are pure (no I/O, no side effects).
+
+  Input data model:
+    class Candle {
+      final String time;
+      final double open, high, low, close;
+      final int volume;
+    }
+
+  ---------------------------------------------------------
+  1. List<double?> computeEma(List<Candle> candles, {int period = 9})
+  ---------------------------------------------------------
+    k = 2.0 / (period + 1)
+    result = List<double?>(candles.length)
+    ema = null
+    for i in 0..candles.length-1:
+      close = candles[i].close
+      ema = ema == null ? close : close * k + ema * (1 - k)
+      result[i] = i >= period - 1 ? round(ema, 2) : null
+    return result
+
+  ---------------------------------------------------------
+  2. String classifyRegime(List<Candle> candles12, List<double?> ema12)
+  ---------------------------------------------------------
+    Returns: "IMPULSE_UP" | "IMPULSE_DOWN" | "REVERSAL_WATCH" | "CONSOLIDATION"
+    Logic:
+      emaSlope = (ema12.last ?? 0) - (ema12[ema12.length-4] ?? ema12.last ?? 0)
+      aboveCount = count of candles12 where close > ema (non-null ema)
+      belowCount = valid - aboveCount
+      crossover: last close < ema AND prev close > ema (bearish cross)
+      crossunder: last close > ema AND prev close < ema (bullish cross)
+      if crossover || crossunder: return "REVERSAL_WATCH"
+      if aboveCount >= 8 && emaSlope > 0: return "IMPULSE_UP"
+      if belowCount >= 8 && emaSlope < 0: return "IMPULSE_DOWN"
+      return "CONSOLIDATION"
+
+  ---------------------------------------------------------
+  3. Map<String,dynamic> computeMoveVelocity(List<Candle> candles6)
+  ---------------------------------------------------------
+    Returns: { "velocity": double, "type": "SHARP"|"GRIND"|"FLAT" }
+    netMove = abs(candles6.last.close - candles6.first.open)
+    velocity = round(netMove / candles6.length, 2)
+    type = velocity > 15 ? "SHARP" : velocity >= 5 ? "GRIND" : "FLAT"
+
+  ---------------------------------------------------------
+  4. String classifyMovePhase(List<Candle> candles, List<double?> ema,
+                              List<Map> oiHistory, String regime)
+  ---------------------------------------------------------
+    Returns: "BASE"|"BREAKOUT"|"TREND_RIDE"|"EXHAUSTION"|"REVERSAL"
+    Waterfall logic:
+      // Reversal check
+      if regime == "REVERSAL_WATCH": return "REVERSAL"
+      // Base check (tight range)
+      range = max(high) - min(low) over last 6 candles
+      avgRange = average(high-low) per candle over last 12
+      if range < avgRange * 1.5 AND velocity.type == "FLAT": return "BASE"
+      // Breakout check
+      rangeExpansion = last candle range > avgRange * 1.8
+      oiBuildup = oiHistory.isNotEmpty AND
+                  (oiHistory.last.total_ce_delta + oiHistory.last.total_pe_delta) > 0
+      if rangeExpansion || oiBuildup: return "BREAKOUT"
+      // Exhaustion check
+      last3 = candles.last 3
+      avgBody = average body/range ratio over last 3 candles
+      if avgBody < 0.3 AND velocity < 5: return "EXHAUSTION"
+      // Default
+      return "TREND_RIDE"
+
+  ---------------------------------------------------------
+  5. Map<String,dynamic> computeTrendHealth(List<Candle> candles12,
+       List<double?> ema12, double callDelta, double putDelta,
+       List<double> pcrSeries)
+  ---------------------------------------------------------
+    Returns: { "score": int, "warnings": List<String> }
+    Start: score = 100, warnings = []
+    Deductions:
+      Volume drop: last vol < avg(prev 5 vol) x 0.7 -> -10, warn "Volume declining"
+      Call OI surge: callDelta > putDelta x 1.5 -> -15, warn "Heavy call writing (bearish pressure)"
+      PCR falling: pcrSeries.length >= 3 AND last 3 vals decreasing -> -15, warn "PCR declining"
+      Close below EMA: candles12.last.close < ema12.last -> -20, warn "Price below EMA9"
+      Velocity drop: velocity of last 3 < velocity of prev 3 -> -10, warn "Momentum dropping"
+      Doji: last candle body/range < 0.15 -> -10, warn "Doji candle -- indecision"
+    score = max(0, score)
+    return { "score": score, "warnings": warnings }
+
+  ---------------------------------------------------------
+  6. Map<String,dynamic> computeLinearMoveScore(
+       String regime, Map velocity, double pcrNow, double ivPct,
+       double oiDirection, double volRatio, double structScore)
+  ---------------------------------------------------------
+    Returns: { "score": int, "signal": "ENTER"|"WAIT"|"AVOID", "breakdown": Map }
+    Weights: emaSlopeW=0.20, oiBuildupW=0.25, pcrTrendW=0.15, ivDirW=0.15,
+             candleStructW=0.15, volumeRatioW=0.10
+    Component scores (0-100 each):
+      emaSlope:      IMPULSE_UP/DOWN -> 90, REVERSAL_WATCH -> 20, else 50
+      oiBuildup:     oiDirection mapped linearly (-100..+100 -> 0..100)
+      pcrTrend:      pcrNow > 1.2 -> 80, > 1.0 -> 60, > 0.8 -> 40, else 20
+      ivDirection:   ivPct (already 0-100, from iv_skew_ratio)
+      candleStruct:  structScore (already 0-100)
+      volumeRatio:   min(volRatio / 2.0, 1.0) x 100
+    weightedScore = sum(component x weight for each)
+    signal = score >= 65 ? "ENTER" : score >= 40 ? "WAIT" : "AVOID"
+    breakdown = { "ema_slope": s1, "oi_buildup": s2, "pcr_trend": s3,
+                  "iv_direction": s4, "candle_structure": s5, "volume_ratio": s6 }
+
+  ---------------------------------------------------------
+  7. Map<String,dynamic> detectOiWall(Map<int,Map> strikeOiMap, double spot)
+  ---------------------------------------------------------
+    Returns: { resistanceStrike, resistanceOi, supportStrike, supportOi,
+               nearestWallDistance }
+    resistanceStrikes = strikes above spot, sorted ascending
+    supportStrikes    = strikes below spot, sorted descending
+    Find max CE OI among resistanceStrikes -> resistanceStrike
+    Find max PE OI among supportStrikes    -> supportStrike
+    nearestWall = min(abs(resistanceStrike - spot), abs(supportStrike - spot))
+
+  Additional helpers (lib/indicators/helpers.dart):
+    double computeIvPercentile(Map? oiSnap):
+      ratio = oiSnap["iv_skew_ratio"] ?? 1.0
+      return clamp((ratio - 0.9) / 0.2 * 100, 0, 100)
+
+    double computeOiDirection(List<Map> oiRows):
+      net = sum(r["pe_delta"] - r["ce_delta"])
+      total = sum(abs(r["pe_delta"]) + abs(r["ce_delta"]))
+      if total == 0: return 0.0
+      return clamp(net / total * 100, -100, 100)
+
+    double computeVolumeRatio(List<Candle> candles):
+      vols = candles.map(c.volume).where(v > 0).toList()
+      if vols.length < 2: return 1.0
+      lastVol = vols.last
+      prior = vols.sublist(max(0, vols.length-21), vols.length-1)
+      priorAvg = prior.isEmpty ? 1.0 : prior.reduce(+) / prior.length
+      return priorAvg == 0 ? 1.0 : round(lastVol / priorAvg, 3)
+
+    double computeCandleStructure(List<Candle> last4):
+      scores = last4.map((c) {
+        r = c.high - c.low
+        b = abs(c.close - c.open)
+        return r > 0 ? b / r : 0.0
+      })
+      return round(scores.reduce(+) / scores.length * 100, 1)
+
+4C. SIGNAL ENGINE (port from signal_engine.py)
+
+  File: lib/indicators/signal_engine.dart
+
+  Constants (mirror Python values exactly):
+    buyPhaseTriggers  = {"BREAKOUT", "TREND_RIDE"}
+    exitPhaseTriggers = {"EXHAUSTION", "REVERSAL"}
+    minLinearScore    = 65
+    minHealthScore    = 50
+    noTradeHealth     = 40
+    noTradeLinear     = 40
+    cooldownMinutes   = 15
+    targetMult        = 1.125     // entry x 1.125 = target
+    slMult            = 0.9375    // entry x 0.9375 = SL
+
+  Per-instrument state (in-memory, reset on app restart):
+    Map<String, Map> _signalState = {}
+    Keys: action, direction, time (DateTime)
+
+  Map<String,dynamic> generateSignal({
+    required String instrument,
+    required String regime,
+    required String phase,
+    required Map<String,dynamic> health,
+    required Map<String,dynamic> linearScore,
+    required Map<String,dynamic> velocity,
+    Map<String,dynamic>? oiSnap,
+    double? spot,
+  })
+
+  Step 1 -- Collect counter reasons:
+    List<String> counter = []
+    if phase in exitPhaseTriggers:
+      counter.add("Phase is $phase -- momentum fading, consider exit")
+    if regime == "REVERSAL_WATCH":
+      counter.add("EMA crossover detected -- reversal in progress")
+    if regime == "CONSOLIDATION" && phase != "BREAKOUT":
+      counter.add("Market in consolidation -- no directional edge")
+    if healthScore < noTradeHealth:
+      counter.add("Trend health weak ($healthScore/100)")
+    if linScore < noTradeLinear:
+      counter.add("Linear score low ($linScore/100)")
+    if velType == "FLAT" && regime in {"IMPULSE_UP","IMPULSE_DOWN"}:
+      counter.add("Velocity flat despite impulse regime")
+    if counter.isNotEmpty -> return _dedup(NO_TRADE signal)
+
+  Step 2 -- Buy conditions:
+    if regime in {"IMPULSE_UP","IMPULSE_DOWN"}
+       && phase in buyPhaseTriggers
+       && linScore >= minLinearScore
+       && healthScore >= minHealthScore
+       && velType != "FLAT":
+         direction = regime == "IMPULSE_UP" ? "CE" : "PE"
+         (entry, atmStrike) = _getEntry(direction, oiSnap)
+         if entry != null:
+           target = _roundPremium(entry * targetMult)
+           sl     = _roundPremium(entry * slMult)
+           return _dedup(BUY signal)
+         else:
+           return _dedup(WAIT -- buy conditions met but OI tracker not running)
+
+  Step 3 -- WAIT:
+    reason = _waitReason(regime, phase, linScore, healthScore, velType)
+    return _dedup(WAIT signal)
+
+  double _roundPremium(double v):
+    // Rounds to nearest 0.5 (option tick)
+    return (v * 2).round() / 2.0
+
+  Map _dedup(String instrument, Map sig):
+    prev = _signalState[instrument] ?? {}
+    stateChanged = sig.action != prev.action || sig.direction != prev.direction
+    cooldownOk = true
+    if !stateChanged && sig.action == "BUY":
+      prevTime = prev.time
+      if prevTime != null:
+        elapsed = DateTime.now().difference(prevTime).inMinutes
+        cooldownOk = elapsed >= cooldownMinutes
+    if stateChanged || (sig.action == "BUY" && cooldownOk):
+      sig.isNew = true
+      _signalState[instrument] = { action, direction, time: DateTime.now() }
+    return sig
+
+4D. DASHBOARD SCREEN LAYOUT
+
+  File: lib/screens/dashboard/dashboard_screen.dart
+
+  Scrollable single-column layout (portrait):
+
+  +-----------------------------------------------------+
+  |  HEADER BAR                                         |
+  |  [NIFTY v] [BANKNIFTY v]     Status chip    Refresh |
+  +-----------------------------------------------------+
+
+  +-----------------------------------------------------+
+  |  SIGNAL CARD                                        |
+  |  BUY: [BUY CE] NIFTY 22900  Entry 160  T 180  SL   |
+  |  NO TRADE: [NO TRADE] Reason list                   |
+  |  WAIT: [WAIT] Single reason                         |
+  |  Flash white border animation on is_new             |
+  +-----------------------------------------------------+
+
+  +-----------------------------------------------------+
+  |  REGIME BANNER                                      |
+  |  IMPULSE UP (full width, colour-coded)              |
+  |  Phase: TREND_RIDE  Vel: 12.3 GRIND  Spot: 22,847  |
+  +-----------------------------------------------------+
+
+  +-----------------+  +------------------------------+
+  | OI BATTLEFIELD  |  | GREEKS MOMENTUM              |
+  | Horizontal bars |  | CE OI Delta  |  PE OI Delta  |
+  | CE <-- | --> PE  |  | Velocity     |  Trend Health |
+  | ATM highlighted |  | Health bar (green/yellow/red) |
+  | PCR: 1.24 BULL  |  | Warnings list                |
+  | Resistance wall |  +------------------------------+
+  | Support wall    |
+  +-----------------+
+
+  +-----------------------------------------------------+
+  |  PHASE TIMELINE (today)                             |
+  |  [BASE][BREAKOUT][TREND RIDE][EXHAUSTION][BASE]     |
+  |  Tap segment -> tooltip: time range + pts           |
+  +-----------------------------------------------------+
+
+  +-----------------------------------------------------+
+  |  PHASE CHART (candlestick + EMA9)                   |
+  |  Coloured bg bands per phase                        |
+  |  EMA9 yellow dashed overlay                         |
+  |  Phase transition dots on price line                |
+  |  Height: 220px fixed                                |
+  +-----------------------------------------------------+
+
+  +-----------------------------------------------------+
+  |  LINEAR MOVE SCORECARD                              |
+  |  [  74  ]  EMA Slope     ########....  18/20        |
+  |  [ /100 ]  OI Buildup    #########...  22/25        |
+  |  [ENTER ]  PCR Trend     ########....  12/15        |
+  |            IV Direction  ######......  10/15        |
+  |            Candle Struct #######.....  11/15        |
+  |            Volume Ratio  ########....   8/10        |
+  +-----------------------------------------------------+
+
+  Charting:
+    OI Battlefield:   fl_chart BarChart (horizontal, grouped bars per strike)
+    Phase Timeline:   fl_chart BarChart (proportional width segments, coloured)
+    Phase Chart:      CustomPainter (candlesticks + EMA + phase bg bands)
+    Scorecard bars:   fl_chart LinearProgressIndicator or BarChart
+
+  Phase colours:
+    BASE        -> grey     #6c757d
+    BREAKOUT    -> amber    #ffc107
+    TREND_RIDE  -> green    #198754  (UP) / red #dc3545 (DOWN)
+    EXHAUSTION  -> orange   #fd7e14
+    REVERSAL    -> cyan     #0dcaf0
+
+  Refresh loop (Riverpod AsyncNotifier):
+    - Timer.periodic(5s) -> fetchLiveCandle() -> runIndicators() -> notifyListeners()
+    - Timer.periodic(30s) -> fetchOiSnapshot() -> notifyListeners()
+    - On instrument change: cancel timers, clear state, restart
+
+4E. OI TRACKING TOGGLE
+  "Start OI" button in dashboard header (visible when oiState == idle).
+  "Stop OI"  button replaces it when oiState == tracking.
+  On Start:
+    1. Fetch expiry list -> pick soonest.
+    2. Fetch option chain -> parse ATM +/- 5 strikes.
+    3. Store in provider state.
+    4. Start 30s polling timer.
+  On Stop:
+    Cancel timer, clear OI state, re-render battlefield as "unavailable".
+
+
+--------------------------------------------------------------------------------
+MODULE 5 -- FASTAPI BACKEND
+--------------------------------------------------------------------------------
+
+DESCRIPTION
+  Thin REST service running on the existing Linux VM alongside the Flask web app.
+  No WebSockets, no computation. ~300 lines of Python total.
+  Port 8000 (Nginx proxies api.yourdomain.com -> localhost:8000).
+
+5A. PROJECT STRUCTURE
+
+  /opt/marketmascot/backend/
+    +-- main.py                  FastAPI app factory + CORS + startup
+    +-- config.py                Settings from environment variables
+    +-- database.py              SQLAlchemy async engine + session factory
+    +-- models.py                SQLAlchemy ORM models (tables)
+    +-- schemas.py               Pydantic request/response schemas
+    +-- auth.py                  JWT creation, verification, bcrypt hashing
+    +-- deps.py                  FastAPI dependency: get_current_user
+    +-- routers/
+    |   +-- auth.py              /auth/* endpoints
+    |   +-- trades.py            /trades/* endpoints
+    |   +-- health.py            /health endpoint
+    +-- requirements.txt
+    +-- .env                     environment variables (not in git)
+    +-- alembic/                 database migrations
+    +-- Dockerfile               (optional, if using Docker)
+
+5B. ENVIRONMENT VARIABLES (.env)
+
+  DATABASE_URL=postgresql+asyncpg://mm_user:PASSWORD@localhost:5432/marketmascot
+  SECRET_KEY=<64-char random hex>           # JWT signing key
+  ACCESS_TOKEN_EXPIRE_MINUTES=60
+  REFRESH_TOKEN_EXPIRE_DAYS=30
+  ALLOWED_ORIGINS=*                         # lock down in production
+  APP_ENV=production
+
+5C. POSTGRESQL DATABASE SCHEMA
+
+  Users table:
+    CREATE TABLE users (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name         VARCHAR(100) NOT NULL,
+      email        VARCHAR(255) UNIQUE NOT NULL,
+      password_hash VARCHAR(72) NOT NULL,   -- bcrypt hash
+      created_at   TIMESTAMPTZ DEFAULT now(),
+      last_login   TIMESTAMPTZ,
+      is_active    BOOLEAN DEFAULT TRUE
+    );
+
+  Refresh tokens table (for invalidation):
+    CREATE TABLE refresh_tokens (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id      UUID REFERENCES users(id) ON DELETE CASCADE,
+      token_hash   VARCHAR(64) NOT NULL,    -- SHA-256 of refresh token
+      expires_at   TIMESTAMPTZ NOT NULL,
+      created_at   TIMESTAMPTZ DEFAULT now(),
+      revoked      BOOLEAN DEFAULT FALSE
+    );
+    CREATE INDEX idx_rt_user ON refresh_tokens(user_id);
+    CREATE INDEX idx_rt_hash ON refresh_tokens(token_hash);
+
+  Trades table:
+    CREATE TABLE trades (
+      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id        UUID REFERENCES users(id) ON DELETE CASCADE,
+      trading_symbol VARCHAR(50),
+      security_id    VARCHAR(20),
+      instrument     VARCHAR(20),
+      strike         INTEGER,
+      option_type    VARCHAR(2),
+      entry_trigger  NUMERIC(10,2),
+      buy_price      NUMERIC(10,2),
+      exit_price     NUMERIC(10,2),
+      quantity       INTEGER,
+      lots           INTEGER,
+      lot_size       INTEGER,
+      sl             NUMERIC(10,2),
+      targets        JSONB,                 -- [180.0, 220.0]
+      pnl            NUMERIC(12,2),
+      exit_reason    VARCHAR(10),           -- SL|TARGET|TARGET2|MANUAL
+      entry_time     TIMESTAMPTZ,
+      exit_time      TIMESTAMPTZ,
+      order_id       VARCHAR(50),
+      exit_order_id  VARCHAR(50),
+      created_at     TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE INDEX idx_trades_user ON trades(user_id, exit_time DESC);
+
+5D. API ENDPOINTS -- FULL SPECIFICATION
+
+  BASE URL: https://api.yourdomain.com  (or http://localhost:8000 in dev)
+
+  --- Authentication ---------------------------------------------------
+
+  POST /auth/register
+    Request:
+      { "name": "Rahul", "email": "r@r.com", "password": "mypass123" }
+    Response 201:
+      {
+        "user_id": "uuid",
+        "name": "Rahul",
+        "email": "r@r.com",
+        "access_token": "eyJ...",
+        "refresh_token": "eyJ...",
+        "token_type": "bearer"
+      }
+    Errors:
+      409 { "detail": "Email already registered" }
+      422 Validation error (short password, bad email format)
+
+  POST /auth/login
+    Request:
+      { "email": "r@r.com", "password": "mypass123" }
+    Response 200:
+      {
+        "user_id": "uuid",
+        "name": "Rahul",
+        "access_token": "eyJ...",
+        "refresh_token": "eyJ...",
+        "token_type": "bearer"
+      }
+    Errors:
+      401 { "detail": "Invalid credentials" }
+
+  POST /auth/refresh
+    Request:
+      { "refresh_token": "eyJ..." }
+    Response 200:
+      { "access_token": "eyJ...", "token_type": "bearer" }
+    Errors:
+      401 { "detail": "Invalid or expired refresh token" }
+
+  POST /auth/logout
+    Headers: Authorization: Bearer <access_token>
+    Request:
+      { "refresh_token": "eyJ..." }
+    Response 204: (no body)
+    Effect: Sets revoked=true on refresh_token row.
+
+  PUT /auth/password
+    Headers: Authorization: Bearer <access_token>
+    Request:
+      { "current_password": "old", "new_password": "newpass123" }
+    Response 200:
+      { "detail": "Password updated" }
+    Errors:
+      401 { "detail": "Current password incorrect" }
+
+  DELETE /auth/account
+    Headers: Authorization: Bearer <access_token>
+    Request:
+      { "password": "mypass123" }
+    Response 204:
+    Effect: Sets is_active=false (soft delete). Cascades to tokens + trades.
+
+  --- Trades -----------------------------------------------------------
+
+  GET /trades
+    Headers: Authorization: Bearer <access_token>
+    Query params:
+      page     (int, default 1)
+      per_page (int, default 20, max 100)
+      from     (date YYYY-MM-DD, optional)
+      to       (date YYYY-MM-DD, optional)
+      instrument (str, optional filter)
+      outcome  ("win"|"loss", optional filter)
+    Response 200:
+      {
+        "total": 142,
+        "page": 1,
+        "per_page": 20,
+        "trades": [
+          {
+            "id": "uuid",
+            "trading_symbol": "NIFTY2540722900PE",
+            "instrument": "NIFTY",
+            "strike": 22900,
+            "option_type": "PE",
+            "buy_price": 160.0,
+            "exit_price": 180.0,
+            "pnl": 1500.0,
+            "lots": 3,
+            "quantity": 150,
+            "exit_reason": "TARGET",
+            "entry_time": "2026-04-07T10:15:00+05:30",
+            "exit_time": "2026-04-07T11:30:00+05:30"
+          },
+          ...
+        ]
+      }
+
+  POST /trades
+    Headers: Authorization: Bearer <access_token>
+    Request: (full trade object)
+      {
+        "trading_symbol": "NIFTY2540722900PE",
+        "security_id": "35003",
+        "instrument": "NIFTY",
+        "strike": 22900,
+        "option_type": "PE",
+        "entry_trigger": 155.0,
+        "buy_price": 160.0,
+        "exit_price": 180.0,
+        "quantity": 150,
+        "lots": 3,
+        "lot_size": 50,
+        "sl": 150.0,
+        "targets": [180.0, 220.0],
+        "pnl": 3000.0,
+        "exit_reason": "TARGET",
+        "entry_time": "2026-04-07T10:15:00+05:30",
+        "exit_time": "2026-04-07T11:30:00+05:30",
+        "order_id": "ORD123",
+        "exit_order_id": "ORD124"
+      }
+    Response 201:
+      { "id": "uuid", ...all fields... }
+    Note: Flutter calls this after every trade exit. Idempotent on order_id.
+
+  DELETE /trades/{id}
+    Headers: Authorization: Bearer <access_token>
+    Response 204:
+    Errors: 404 if trade not found or belongs to another user.
+
+  GET /trades/stats
+    Headers: Authorization: Bearer <access_token>
+    Response 200:
+      {
+        "today": {
+          "pnl": 3000.0, "trades": 2,
+          "wins": 2, "losses": 0, "win_rate": 100.0
+        },
+        "this_week": {
+          "pnl": 7500.0, "trades": 8,
+          "wins": 6, "losses": 2, "win_rate": 75.0
+        },
+        "all_time": {
+          "pnl": 42000.0, "trades": 55,
+          "wins": 38, "losses": 17, "win_rate": 69.1,
+          "best_trade": 8000.0, "worst_trade": -2500.0,
+          "avg_pnl": 763.6
+        }
+      }
+
+  --- Health -----------------------------------------------------------
+
+  GET /health
+    Response 200: { "status": "ok", "version": "1.0.0" }
+    No auth required. Used by Nginx health check + Flutter on startup.
+
+5E. FASTAPI IMPLEMENTATION DETAILS
+
+  main.py:
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
+    from routers import auth, trades, health
+
+    app = FastAPI(title="MarketMascot API", version="1.0.0")
+    app.add_middleware(CORSMiddleware,
+      allow_origins=["*"],   # lock to app domain in production
+      allow_methods=["*"],
+      allow_headers=["*"],
+    )
+    app.include_router(auth.router,   prefix="/auth",   tags=["auth"])
+    app.include_router(trades.router, prefix="/trades", tags=["trades"])
+    app.include_router(health.router, tags=["health"])
+
+  auth.py (JWT utils):
+    SECRET_KEY = config.SECRET_KEY
+    ALGORITHM  = "HS256"
+
+    def create_access_token(user_id: str) -> str:
+      expires = datetime.utcnow() + timedelta(minutes=ACCESS_EXPIRE)
+      return jwt.encode({"sub": user_id, "exp": expires, "type": "access"},
+                        SECRET_KEY, ALGORITHM)
+
+    def create_refresh_token(user_id: str) -> str:
+      expires = datetime.utcnow() + timedelta(days=REFRESH_EXPIRE_DAYS)
+      return jwt.encode({"sub": user_id, "exp": expires, "type": "refresh"},
+                        SECRET_KEY, ALGORITHM)
+
+    def verify_token(token: str, type: str) -> str:
+      # Decodes JWT, checks type claim, returns user_id (sub)
+      # Raises HTTPException 401 on invalid/expired token
+
+    async def get_current_user(token: str = Depends(oauth2_scheme),
+                               db = Depends(get_db)) -> User:
+      user_id = verify_token(token, "access")
+      user = await db.get(User, user_id)
+      if not user or not user.is_active:
+        raise HTTPException(401, "User not found or inactive")
+      return user
+
+  requirements.txt:
+    fastapi==0.111.0
+    uvicorn[standard]==0.29.0
+    sqlalchemy[asyncio]==2.0.29
+    asyncpg==0.29.0
+    alembic==1.13.1
+    python-jose[cryptography]==3.3.0
+    passlib[bcrypt]==1.7.4
+    python-dotenv==1.0.1
+    pydantic[email]==2.7.0
+    httpx==0.27.0   # for testing
+
+
+--------------------------------------------------------------------------------
+MODULE 6 -- LOCAL NOTIFICATIONS
+--------------------------------------------------------------------------------
+
+DESCRIPTION
+  Flutter-native local notifications. No server involvement.
+  Triggered by the trade state machine and signal engine, in-app.
+
+  Package: flutter_local_notifications (pub.dev)
+  For background monitoring: flutter_foreground_task (keeps isolate alive)
+
+6A. NOTIFICATION TRIGGERS
+
+  Trade notifications:
+    SL Hit:       "SL Hit -- NIFTY 22900 PE"    body: "Exited at Rs.145 (SL)"
+    T1 Hit:       "Target 1 Hit"                 body: "50% exited at Rs.180"
+    T2 Hit:       "Target 2 Hit"                 body: "Full exit at Rs.220"
+    Manual Exit:  "Trade Closed"                 body: "Manual exit at Rs.165"
+    SL Trailed:   "SL Trailed to Rs.155"         body: "Stop loss moved up"
+
+  Signal notifications (when app is backgrounded, new BUY signal):
+    New BUY:    "BUY CE Signal -- NIFTY"         body: "Entry 160, T 180, SL 150"
+
+  Dashboard must be running in foreground service to emit signal notifications
+  when app is in background (use flutter_foreground_task).
+
+6B. NOTIFICATION SETUP (Android)
+
+  AndroidManifest.xml permissions:
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+  Notification channels (Android 8+):
+    channel_id: "trade_alerts",  name: "Trade Alerts",  importance: HIGH
+    channel_id: "signals",       name: "Signal Alerts",  importance: DEFAULT
+
+6C. FOREGROUND SERVICE FOR BACKGROUND TRADE MONITORING
+
+  When user enters Live Trade Screen:
+    Start FlutterForegroundTask with:
+      notification: "MarketMascot: Monitoring NIFTY 22900 PE"
+      taskHandler: TradeMonitorHandler (runs state machine on WS ticks)
+  When trade exits or user pops screen:
+    Stop FlutterForegroundTask.
+
+  This keeps WebSocket alive + state machine running even if user switches apps.
+
+
+--------------------------------------------------------------------------------
+NAVIGATION STRUCTURE
+--------------------------------------------------------------------------------
+
+  App launch
+    +-- Splash Screen (check JWT validity -> auto-login or show picker)
+          +-- No accounts -> Register Screen
+          +-- Accounts exist -> Account Picker Screen
+                +-- PIN Entry -> Home Screen
+                +-- Add Account -> Register Screen -> Dhan Setup -> Home
+
+  Home Screen (bottom nav: 4 tabs)
+    +-- Tab 1: Strategy Dashboard (Module 4)
+    |     +-- FAB "New Trade" -> Custom Trade Setup -> Live Trade -> Summary -> Home
+    +-- Tab 2: Tips (Module 3)
+    |     +-- "Execute" -> Custom Trade Setup -> Live Trade -> Summary -> Home
+    +-- Tab 3: Trade History (Module 2E)
+    |     +-- Tap row -> Trade Detail (read-only)
+    +-- Tab 4: Settings
+          +-- Link Dhan Account (2A)
+          +-- Link Telegram (3A)
+          +-- Change PIN (1.5)
+          +-- Change Password (1.5)
+          +-- Switch Account -> Account Picker
+
+  Modal overlays (not full navigation):
+    - PIN Entry Screen (on app resume if > 5 min since last auth)
+    - Tip detail expand (in-place, no nav push)
+    - Trade detail on history tap
+
+
+--------------------------------------------------------------------------------
+FLUTTER TECH STACK & PACKAGES
+--------------------------------------------------------------------------------
+
+  Framework:      Flutter 3.x, Dart 3.x, Android target API 26+
+  State mgmt:     flutter_riverpod 2.x (AsyncNotifier + StateNotifier)
+  Local DB:       sqflite 2.x + path_provider
+  HTTP:           dio 5.x (interceptors for auth + auto-refresh)
+  WebSocket:      web_socket_channel 2.x
+  Auth storage:   flutter_secure_storage (JWT tokens)
+  Preferences:    shared_preferences (active user, settings, last_update_id)
+  Crypto:         encrypt 5.x (AES-256-CBC for Dhan token + bot token)
+  CSV:            csv 5.x (instrument master download)
+  Charts:         fl_chart 0.68.x (OI battlefield, scorecard bars, timelines)
+                  Custom CustomPainter (candlestick chart with EMA overlay)
+  Notifications:  flutter_local_notifications 17.x
+  Foreground svc: flutter_foreground_task 8.x
+  Biometric:      local_auth 2.x (optional PIN alternative)
+  Date/time:      intl 0.19.x (IST formatting, "dd MMM yyyy HH:mm")
+  Backend HTTP:   dio (same instance, separate interceptor for Bearer token)
+  Hash:           crypto 3.x (SHA-256 for PIN hash)
+  UUID:           uuid 4.x
+
+  pubspec.yaml dependencies summary:
+    flutter_riverpod: ^2.5.1
+    sqflite: ^2.3.3
+    path_provider: ^2.1.3
+    dio: ^5.4.3
+    web_socket_channel: ^2.4.5
+    flutter_secure_storage: ^9.0.0
+    shared_preferences: ^2.2.3
+    encrypt: ^5.0.3
+    csv: ^5.1.1
+    fl_chart: ^0.68.0
+    flutter_local_notifications: ^17.2.1
+    flutter_foreground_task: ^8.0.0
+    local_auth: ^2.2.0
+    intl: ^0.19.0
+    crypto: ^3.0.3
+    uuid: ^4.4.0
+
+  Flutter project structure:
+    lib/
+      main.dart                  app entry, Riverpod ProviderScope, theme
+      config/
+        app_config.dart          API base URL, constants
+        theme.dart               dark theme, colours, text styles
+      models/
+        user.dart
+        trade.dart
+        candle.dart
+        tip.dart
+        oi_row.dart
+        signal.dart
+        auth_tokens.dart
+      db/
+        database.dart            sqflite init, migrations
+        user_dao.dart
+        candle_dao.dart
+        trade_dao.dart
+        tip_dao.dart
+        instrument_dao.dart
+        auth_dao.dart
+      api/
+        dhan_api.dart            all Dhan REST + WebSocket calls
+        telegram_api.dart        Bot API polling
+        backend_api.dart         FastAPI calls (auth + trades)
+        interceptors/
+          dhan_interceptor.dart  sets client-id + access-token headers
+          auth_interceptor.dart  sets Bearer token, auto-refresh on 401
+      indicators/
+        indicators.dart          all 7 indicator functions
+        signal_engine.dart       generateSignal() + dedup state
+        helpers.dart             computeIvPercentile, computeOiDirection, etc.
+        ema.dart                 computeEma() standalone
+      screens/
+        splash/
+          splash_screen.dart
+        auth/
+          account_picker_screen.dart
+          register_screen.dart
+          login_screen.dart
+          pin_entry_screen.dart
+        home/
+          home_screen.dart       BottomNavigationBar scaffold
+        dashboard/
+          dashboard_screen.dart
+          dashboard_provider.dart  AsyncNotifier, 5s + 30s timers
+        tips/
+          tips_screen.dart
+          tips_provider.dart
+          tip_execute_screen.dart
+        trade/
+          custom_trade_screen.dart
+          live_trade_screen.dart
+          trade_summary_screen.dart
+          live_trade_provider.dart  StateNotifier for trade state machine
+        history/
+          history_screen.dart
+          history_provider.dart
+        settings/
+          settings_screen.dart
+          dhan_setup_screen.dart
+          telegram_setup_screen.dart
+      widgets/
+        signal_card.dart
+        regime_banner.dart
+        oi_chart.dart            fl_chart horizontal grouped bar chart
+        phase_timeline_bar.dart  fl_chart proportional bar
+        phase_chart_painter.dart CustomPainter candlestick + EMA
+        scorecard_widget.dart
+        trade_state_banner.dart
+        health_bar.dart
+        tip_card.dart
+        trade_row.dart
+
+
+--------------------------------------------------------------------------------
+FASTAPI DEPLOYMENT ON LINUX VM
+--------------------------------------------------------------------------------
+
+DIRECTORY LAYOUT ON VM
+
+  /opt/marketmascot/
+    +-- webapp/          existing Flask app (already running)
+    +-- backend/         new FastAPI backend
+
+STEP 1 -- PostgreSQL setup
+
+  sudo apt install postgresql postgresql-contrib -y
+  sudo systemctl enable --now postgresql
+
+  sudo -u postgres psql <<EOF
+  CREATE USER mm_user WITH PASSWORD 'STRONG_PASSWORD_HERE';
+  CREATE DATABASE marketmascot OWNER mm_user;
+  GRANT ALL PRIVILEGES ON DATABASE marketmascot TO mm_user;
+  EOF
+
+STEP 2 -- Clone / copy backend files
+
+  sudo mkdir -p /opt/marketmascot/backend
+  sudo chown $USER:$USER /opt/marketmascot/backend
+  # Copy backend/ directory to /opt/marketmascot/backend/
+
+STEP 3 -- Python virtualenv for backend
+
+  cd /opt/marketmascot/backend
+  python3.11 -m venv .venv
+  source .venv/bin/activate
+  pip install -r requirements.txt
+
+STEP 4 -- Environment file
+
+  cat > /opt/marketmascot/backend/.env <<EOF
+  DATABASE_URL=postgresql+asyncpg://mm_user:STRONG_PASSWORD_HERE@localhost:5432/marketmascot
+  SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+  ACCESS_TOKEN_EXPIRE_MINUTES=60
+  REFRESH_TOKEN_EXPIRE_DAYS=30
+  ALLOWED_ORIGINS=*
+  APP_ENV=production
+  EOF
+  chmod 600 /opt/marketmascot/backend/.env
+
+STEP 5 -- Database migration (create tables)
+
+  cd /opt/marketmascot/backend
+  source .venv/bin/activate
+  alembic upgrade head
+
+STEP 6 -- Systemd service for FastAPI
+
+  sudo tee /etc/systemd/system/marketmascot-api.service <<EOF
+  [Unit]
+  Description=MarketMascot FastAPI Backend
+  After=network.target postgresql.service
+
+  [Service]
+  Type=exec
+  User=www-data
+  Group=www-data
+  WorkingDirectory=/opt/marketmascot/backend
+  EnvironmentFile=/opt/marketmascot/backend/.env
+  ExecStart=/opt/marketmascot/backend/.venv/bin/uvicorn main:app \
+            --host 127.0.0.1 --port 8000 --workers 2 \
+            --log-level info --access-log
+  Restart=on-failure
+  RestartSec=5s
+  StandardOutput=journal
+  StandardError=journal
+  SyslogIdentifier=mm-api
+
+  [Install]
+  WantedBy=multi-user.target
+  EOF
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable marketmascot-api
+  sudo systemctl start marketmascot-api
+  sudo systemctl status marketmascot-api
+
+STEP 7 -- Systemd service for Flask webapp (if not already set up)
+
+  sudo tee /etc/systemd/system/marketmascot-webapp.service <<EOF
+  [Unit]
+  Description=MarketMascot Flask Web App
+  After=network.target
+
+  [Service]
+  Type=exec
+  User=www-data
+  WorkingDirectory=/opt/marketmascot/webapp
+  EnvironmentFile=/opt/marketmascot/webapp/.env
+  ExecStart=/opt/marketmascot/webapp/.venv/bin/gunicorn \
+            -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker \
+            -w 1 --bind 127.0.0.1:5000 app:app
+  Restart=on-failure
+  RestartSec=5s
+
+  [Install]
+  WantedBy=multi-user.target
+  EOF
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable marketmascot-webapp
+  sudo systemctl start marketmascot-webapp
+
+STEP 8 -- Nginx configuration
+
+  sudo apt install nginx -y
+
+  sudo tee /etc/nginx/sites-available/marketmascot <<'EOF'
+  # Flask web app
+  server {
+      listen 80;
+      server_name app.yourdomain.com;
+
+      location / {
+          proxy_pass         http://127.0.0.1:5000;
+          proxy_http_version 1.1;
+          proxy_set_header   Upgrade $http_upgrade;
+          proxy_set_header   Connection "upgrade";
+          proxy_set_header   Host $host;
+          proxy_set_header   X-Real-IP $remote_addr;
+          proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_read_timeout 86400;     # keep alive for WebSocket
+      }
+  }
+
+  # FastAPI backend
+  server {
+      listen 80;
+      server_name api.yourdomain.com;
+
+      location / {
+          proxy_pass         http://127.0.0.1:8000;
+          proxy_set_header   Host $host;
+          proxy_set_header   X-Real-IP $remote_addr;
+          proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_read_timeout 60;
+      }
+
+      location /health {
+          proxy_pass http://127.0.0.1:8000/health;
+          access_log off;
+      }
+  }
+  EOF
+
+  sudo ln -s /etc/nginx/sites-available/marketmascot \
+             /etc/nginx/sites-enabled/
+  sudo nginx -t
+  sudo systemctl reload nginx
+
+STEP 9 -- SSL with Certbot (HTTPS)
+
+  sudo apt install certbot python3-certbot-nginx -y
+  sudo certbot --nginx -d app.yourdomain.com -d api.yourdomain.com
+  # Certbot auto-configures HTTPS and sets up auto-renewal cron
+
+  After this, Flutter app config.dart:
+    const apiBaseUrl = "https://api.yourdomain.com";
+
+STEP 10 -- Test deployment
+
+  # Health check
+  curl https://api.yourdomain.com/health
+  # Expected: {"status":"ok","version":"1.0.0"}
+
+  # Test register
+  curl -X POST https://api.yourdomain.com/auth/register \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Test","email":"test@test.com","password":"testpass123"}'
+
+ALTERNATIVE -- Docker Compose (optional, if preferred over systemd)
+
+  /opt/marketmascot/docker-compose.yml:
+
+  version: "3.9"
+  services:
+    db:
+      image: postgres:16-alpine
+      environment:
+        POSTGRES_USER: mm_user
+        POSTGRES_PASSWORD: STRONG_PASSWORD_HERE
+        POSTGRES_DB: marketmascot
+      volumes:
+        - pgdata:/var/lib/postgresql/data
+      restart: unless-stopped
+
+    api:
+      build: ./backend
+      env_file: ./backend/.env
+      environment:
+        DATABASE_URL: postgresql+asyncpg://mm_user:STRONG_PASSWORD_HERE@db:5432/marketmascot
+      ports:
+        - "127.0.0.1:8000:8000"
+      depends_on:
+        - db
+      restart: unless-stopped
+      command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+
+    webapp:
+      build: ./webapp
+      env_file: ./webapp/.env
+      ports:
+        - "127.0.0.1:5000:5000"
+      restart: unless-stopped
+
+  volumes:
+    pgdata:
+
+  Deploy:
+    cd /opt/marketmascot
+    docker compose up -d
+    docker compose logs -f api
+
+
+--------------------------------------------------------------------------------
+SECURITY CONSIDERATIONS
+--------------------------------------------------------------------------------
+
+  1. Dhan access_token encrypted at rest (AES-256-CBC).
+     Encryption key = SHA-256(user_PIN + user_email).
+     Decrypted in memory only during API calls, never logged.
+
+  2. Bot token similarly encrypted in SQLite.
+
+  3. PIN stored as SHA-256 hash, never plaintext.
+
+  4. JWT access_token: 1h expiry, stored in flutter_secure_storage (hardware-
+     backed keystore on Android 6+, not SharedPreferences).
+     Refresh_token: 30d expiry, also in secure_storage.
+
+  5. On 3 failed PIN attempts: account locked 5 min
+     (counter in SharedPreferences, time-checked on each attempt).
+
+  6. No network calls made until PIN authentication succeeds.
+
+  7. Android manifest:
+     android:allowBackup="false"    prevents adb backup of SQLite.
+     android:usesCleartextTraffic="false"  enforces HTTPS.
+
+  8. FastAPI backend:
+     bcrypt (cost 12) for password hashing -- no MD5/SHA for passwords.
+     Refresh tokens stored as SHA-256 hash in DB, not raw token.
+     CORS locked to app domain in production (not "*").
+     Soft-delete users (is_active=false) to preserve trade history.
+
+  9. PostgreSQL:
+     mm_user has no superuser privileges.
+     Credentials in .env with chmod 600.
+     DB not exposed externally (localhost only, Nginx is the gateway).
+
+  10. SSL/TLS enforced end-to-end (Certbot HTTPS on api subdomain).
+
+
+--------------------------------------------------------------------------------
+OUT OF SCOPE (v1.0)
+--------------------------------------------------------------------------------
+
+  - iOS support
+  - FCM server-push notifications (local notifications cover v1)
+  - Multi-device simultaneous active trade (one device = one trade at a time)
+  - Backtesting / strategy replay
+  - Market scanner / screener
+  - Subscriptions / billing / payment gateway
+  - Multi-leg strategies (spreads, straddles, iron condors)
+  - Paper trading mode
+  - Broker integrations other than Dhan
+  - Admin dashboard for the backend
+  - Rate limiting on FastAPI (add in v2 with slowapi)
+  - Email verification on registration (add in v2)
+  - Password reset flow (add in v2)
+
+
+--------------------------------------------------------------------------------
+FEATURE TRACEABILITY (web app -> Flutter + FastAPI)
+--------------------------------------------------------------------------------
+
+  Web App File                    Flutter / FastAPI
+  ------------------------------------------------------------------
+  routes/custom.py                screens/trade/custom_trade_screen.dart
+  routes/live.py                  screens/trade/live_trade_screen.dart
+                                  screens/trade/live_trade_provider.dart
+  routes/tips.py + tgwrap.py      screens/tips/tips_screen.dart
+                                  api/telegram_api.dart
+  routes/dashboard.py             screens/dashboard/dashboard_screen.dart
+                                  screens/dashboard/dashboard_provider.dart
+  indicators_dashboard.py         indicators/indicators.dart
+  signal_engine.py                indicators/signal_engine.dart
+  routes/oi_tracker.py            screens/dashboard/ (OI polling logic)
+                                  widgets/oi_chart.dart
+  routes/settings.py              screens/settings/settings_screen.dart
+                                  screens/settings/dhan_setup_screen.dart
+  candle_service.py               api/dhan_api.dart
+                                  db/candle_dao.dart
+  globals.py (PCR_SERIES)         screens/dashboard/dashboard_provider.dart
+  -- (no web equivalent)          backend/ FastAPI (Module 5)
+  -- (no web equivalent)          Module 6 (local notifications)
+
+================================================================================
+END OF DOCUMENT
+================================================================================

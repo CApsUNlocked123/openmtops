@@ -38,23 +38,26 @@ def is_tip(text):
 def parse_tip(text):
     """Parse key fields from a tip message."""
     symbol = re.search(r'#(\w+)', text, re.IGNORECASE)
-    strike = re.search(r'\b(\d{4,6})\b', text)
-    option_type = re.search(r'\b(PE|CE)\b', text, re.IGNORECASE)
-    entry = re.search(r'above\s+([\d.]+)', text, re.IGNORECASE)
-    sl = re.search(r'SL\s+([\d.]+)', text, re.IGNORECASE)
-    targets = re.findall(r'[Tt]arget\s+([\d./]+)', text)
+    # Match plain "22900" OR concatenated "22900CE" / "22900PE"
+    strike = re.search(r'\b(\d{4,6})(CE|PE)?\b', text, re.IGNORECASE)
+    # Match standalone "CE"/"PE" or concatenated "22900CE"/"22900PE"
+    option_type = re.search(r'(?<!\w)(PE|CE)(?!\w)|(?<=\d)(PE|CE)', text, re.IGNORECASE)
+    # Match "above 90" or "@90" or "@ 90"
+    entry = re.search(r'above\s+([\d.]+)|@\s*([\d.]+)', text, re.IGNORECASE)
+    sl = re.search(r'SL\s*[:\-]?\s*([\d.]+)', text, re.IGNORECASE)
+    targets = re.findall(r'[Tt]arget\s*[:\-]?\s*([\d./]+)', text)
 
     return {
         "symbol":   symbol.group(1).upper() if symbol else None,
         "strike":   strike.group(1) if strike else None,
-        "type":     option_type.group(1).upper() if option_type else None,
-        "entry":    entry.group(1) if entry else None,
+        "type":     (option_type.group(1) or option_type.group(2)).upper() if option_type else None,
+        "entry":    (entry.group(1) or entry.group(2)) if entry else None,
         "sl":       sl.group(1) if sl else None,
         "targets":  targets[0].split('/') if targets else [],
         "raw":      text.strip(),
     }
 
-async def fetch_tips_list(limit=50):
+async def fetch_tips_list(limit=200):
     """Fetch tips using the shared persistent client (no event-loop churn)."""
     tips = []
     client = await _get_client()          # reuse the long-lived auth client
@@ -67,8 +70,8 @@ async def fetch_tips_list(limit=50):
             tips.append(tip)
     return tips
 
-def get_tips(limit=50):
-    """Synchronous wrapper for Streamlit — runs on the persistent auth loop."""
+def get_tips(limit=200):
+    """Synchronous wrapper — runs on the persistent auth loop."""
     return _auth_run(fetch_tips_list(limit), timeout=60)
 
 async def read_tips(limit=50):
@@ -136,13 +139,44 @@ async def _get_client() -> TelegramClient:
     """Return the shared auth client, recreating if credentials have changed."""
     global _auth_client, _auth_client_id
     api_id, api_hash = _get_api_credentials()
-    # Recreate if never built, or built with placeholder api_id=0
-    if _auth_client is None or (api_id and _auth_client_id != api_id):
+
+    if not api_id or not api_hash:
+        raise RuntimeError(
+            "Telegram API credentials not configured. "
+            "Set API ID and API Hash in Settings → Telegram API Credentials."
+        )
+
+    if _auth_client is None or _auth_client_id != api_id:
+        # Disconnect old client first so it releases the session file lock
+        if _auth_client is not None:
+            try:
+                await _auth_client.disconnect()
+            except Exception:
+                pass
         _auth_client    = TelegramClient(SESSION_FILE, api_id, api_hash)
         _auth_client_id = api_id
+
     if not _auth_client.is_connected():
         await _auth_client.connect()
     return _auth_client
+
+
+def reset_telegram_client() -> None:
+    """
+    Force re-initialization of the Telegram client on next use.
+    Call after saving new Telegram API credentials so the new
+    api_id/api_hash are picked up without restarting the process.
+    """
+    global _auth_client, _auth_client_id
+    if _auth_client is not None:
+        try:
+            asyncio.run_coroutine_threadsafe(
+                _auth_client.disconnect(), _get_auth_loop()
+            ).result(timeout=5)
+        except Exception:
+            pass
+    _auth_client    = None
+    _auth_client_id = 0
 
 
 def is_authorized() -> bool:

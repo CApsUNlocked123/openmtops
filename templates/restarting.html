@@ -23,17 +23,17 @@
     </div>
   </div>
   <script>
-    let secs = 4;
+    let secs = 6;
     const el = document.getElementById('countdown');
     const iv = setInterval(() => {
       secs--;
       el.textContent = secs > 0 ? `Retrying in ${secs}s…` : 'Connecting…';
       if (secs <= 0) {
         clearInterval(iv);
-        // Keep retrying until the restarted server responds
+        // Keep retrying every 1.5 s until the restarted server responds
         (function retry() {
-          fetch('/').then(r => { if (r.ok) window.location.href = '/settings'; else setTimeout(retry, 1000); })
-                    .catch(() => setTimeout(retry, 1000));
+          fetch('/').then(r => { if (r.ok) window.location.href = '/settings'; else setTimeout(retry, 1500); })
+                    .catch(() => setTimeout(retry, 1500));
         })();
       }
     }, 1000);

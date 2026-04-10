@@ -1,6 +1,8 @@
 import os
+import sys
+import threading
 from flask import Blueprint, render_template, request, redirect, session, flash
-from telegram_client import is_authorized, send_code, complete_sign_in
+from telegram_client import is_authorized, send_code, complete_sign_in, reset_telegram_client
 from runtime_config import get_dhan_credentials, save_dhan_credentials, set_many, flush_to_dotenv
 from dhan_broker import dhan, reset_dhan
 
@@ -9,9 +11,16 @@ bp = Blueprint("settings", __name__)
 
 @bp.route("/settings")
 def settings():
-    authed = is_authorized()
-    if authed:
-        session["tg_authorized"] = True
+    # If user explicitly triggered re-auth, keep the phone form visible —
+    # don't let is_authorized() flip it back to "authenticated".
+    if session.get("tg_step"):
+        authed = False
+    else:
+        authed = is_authorized()
+        if authed:
+            session["tg_authorized"] = True
+        else:
+            session.pop("tg_authorized", None)
     client_id, token = get_dhan_credentials()
     masked_token = (token[:8] + "..." + token[-4:]) if len(token) > 12 else "***"
 
@@ -27,6 +36,7 @@ def settings():
         masked_token=masked_token,
         tg_api_id=tg.get("api_id", ""),
         tg_api_hash=tg.get("api_hash", ""),
+        tg_api_configured=bool(tg.get("api_id") and tg.get("api_hash")),
         current_channel_id=get_telegram_channel_id(),
         pin_set=bool(_cfg("app_pin")),
     )
@@ -90,9 +100,10 @@ def tg_2fa():
 
 @bp.route("/settings/tg/reauth", methods=["POST"])
 def tg_reauth():
-    session.pop("tg_step", None)
     session["tg_step"] = "phone"
-    session["tg_authorized"] = False
+    session.pop("tg_authorized", None)
+    session.pop("tg_phone", None)
+    session.pop("tg_hash", None)
     return redirect("/settings")
 
 
@@ -111,10 +122,28 @@ def dhan_update():
     return redirect("/settings")
 
 
-@bp.route("/settings/restarting")
+@bp.route("/settings/restarting", methods=["GET", "POST"])
 def restarting():
-    """Legacy restart page — kept so old bookmarks don't 404. Redirects to settings."""
-    return redirect("/settings")
+    """Restart the Python process.
+
+    Strategy (Windows-safe):
+      1. Return the spinner page immediately so the browser gets a response.
+      2. After 0.8 s, spawn a NEW python process (not exec — spawn).
+      3. After a further 0.3 s, call os._exit(0) to kill THIS process and
+         release the port.  The new process is already in its startup phase
+         and will bind the port as soon as it's free.
+    """
+    import subprocess
+
+    def _do_restart():
+        import time
+        time.sleep(0.8)
+        subprocess.Popen([sys.executable] + sys.argv)
+        time.sleep(0.3)   # give the child a moment before port is freed
+        os._exit(0)
+
+    threading.Thread(target=_do_restart, daemon=False).start()
+    return render_template("restarting.html")
 
 
 # ── Telegram API credentials ──────────────────────────────────────────────────
@@ -126,6 +155,7 @@ def telegram_api_update():
     if api_id and api_hash:
         set_many({"telegram.api_id": int(api_id), "telegram.api_hash": api_hash})
         flush_to_dotenv()
+        reset_telegram_client()
         flash("Telegram API credentials updated. Re-authenticate below.", "info")
     else:
         flash("Both API ID and API Hash are required.", "warning")

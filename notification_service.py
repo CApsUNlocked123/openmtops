@@ -110,7 +110,7 @@ def _poll_tips_once() -> None:
     try:
         import telegram_client
         # get_tips returns list of {"msg_id", "raw", "symbol", "date", ...}
-        tips = telegram_client.get_tips(limit=20)
+        tips = telegram_client.get_tips(limit=200)
         if not tips:
             return
         for tip in tips:

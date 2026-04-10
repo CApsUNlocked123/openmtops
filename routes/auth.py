@@ -10,7 +10,7 @@ from collections import defaultdict
 from datetime import datetime
 
 from flask import Blueprint, render_template, request, session, redirect
-from tgwrap import is_authorized
+from telegram_client import is_authorized
 
 bp = Blueprint("auth", __name__)
 

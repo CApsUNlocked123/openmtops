@@ -58,7 +58,7 @@ def get_status() -> dict:
 def _rebuild():
     """Merge all subscriber instrument lists and restart feed only if changed."""
     import price_feed
-    from dhan import dhan_context
+    from dhan_broker import dhan_context
 
     merged = []
     seen   = set()

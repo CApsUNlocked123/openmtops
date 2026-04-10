@@ -1,0 +1,47 @@
+{% extends "setup_base.html" %}
+{% block title %}Setup Complete — OpenMTOps{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body p-4 text-center">
+
+    <div style="font-size:3rem; margin-bottom:.5rem;">🎉</div>
+    <h4 class="fw-bold mb-1">Setup Complete!</h4>
+    <p class="text-secondary small mb-4">OpenMTOps is ready. Your credentials have been saved to <code>.env</code>.</p>
+
+    <ul class="list-group list-group-flush mb-4 text-start">
+      <li class="list-group-item bg-transparent border-secondary d-flex align-items-center gap-2">
+        {% if summary.telegram_done and not summary.telegram_skipped %}
+          <span class="text-success">✅</span> Telegram connected
+        {% elif summary.telegram_skipped %}
+          <span class="text-secondary">⏭</span> Telegram skipped
+        {% else %}
+          <span class="text-warning">⚠</span> Telegram not configured
+        {% endif %}
+      </li>
+      <li class="list-group-item bg-transparent border-secondary d-flex align-items-center gap-2">
+        {% if summary.dhan_done %}
+          <span class="text-success">✅</span> Dhan broker configured
+        {% else %}
+          <span class="text-warning">⚠</span> Dhan not configured
+        {% endif %}
+      </li>
+      <li class="list-group-item bg-transparent border-secondary d-flex align-items-center gap-2">
+        {% if summary.pin_set %}
+          <span class="text-success">✅</span> Access PIN enabled
+        {% else %}
+          <span class="text-secondary">—</span> No PIN (app is open)
+        {% endif %}
+      </li>
+      <li class="list-group-item bg-transparent border-secondary d-flex align-items-center gap-2">
+        <span class="text-success">✅</span> Credentials saved to <code>.env</code> (persists on restart)
+      </li>
+    </ul>
+
+    <a href="/" class="btn btn-primary btn-lg w-100">Enter App →</a>
+    <div class="mt-3">
+      <a href="/settings" class="btn btn-sm btn-outline-secondary">Open Settings</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

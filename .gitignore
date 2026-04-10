@@ -1,10 +1,52 @@
+# ── Credentials & runtime config ─────────────────────────────────────────────
 .env
+.env.*
+config.json
+runtime_config.json
+dhan_token.json
+
+# ── Telethon session files ─────────────────────────────────────────────────────
 *.session
 *.session-journal
-__pycache__/
-*.pyc
-runtime_config.json
+
+# ── App-generated data (personal / sensitive) ─────────────────────────────────
 data/
 logs/
+trades/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
 venv/
 .venv/
+env/
+
+# ── SQLite journals ───────────────────────────────────────────────────────────
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ── SSH / key material (should never be in project root) ──────────────────────
+*.pem
+*.key
+mykeytab
+mykeytab.pub
+id_rsa
+id_ed25519
+
+# ── IDE & OS ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ── Claude Code internal ──────────────────────────────────────────────────────
+.claude/settings.local.json

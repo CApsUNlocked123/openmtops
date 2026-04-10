@@ -1,0 +1,48 @@
+{% extends "setup_base.html" %}
+{% set current_step = 2 %}
+{% block title %}Telegram Auth — OpenMTOps{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body p-4">
+    <h5 class="fw-bold mb-1">Step 2 — Telegram Sign-in</h5>
+    <p class="text-secondary small mb-3">
+      Authenticate your Telegram account so OpenMTOps can read tips from your channel.
+    </p>
+
+    {% if tg_step == "phone" %}
+    <form method="POST" action="/setup/tg/phone">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Phone number (with country code)</label>
+        <input type="tel" name="phone" class="form-control" placeholder="+91 98765 43210"
+               autofocus required>
+        <div class="form-text text-secondary">We'll send a verification code via Telegram.</div>
+      </div>
+      <button type="submit" class="btn btn-primary w-100">Send Code →</button>
+    </form>
+
+    {% elif tg_step == "code" %}
+    <form method="POST" action="/setup/tg/code">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Verification code</label>
+        <input type="text" name="code" class="form-control text-center font-monospace"
+               placeholder="12345" inputmode="numeric" maxlength="10" autofocus required>
+        <div class="form-text text-secondary">Check your Telegram app for the code.</div>
+      </div>
+      <button type="submit" class="btn btn-primary w-100">Verify →</button>
+    </form>
+
+    {% elif tg_step == "password" %}
+    <form method="POST" action="/setup/tg/2fa">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">2-FA Password</label>
+        <input type="password" name="password" class="form-control"
+               placeholder="Your Telegram 2-FA password" autofocus required>
+      </div>
+      <button type="submit" class="btn btn-primary w-100">Sign in →</button>
+    </form>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

@@ -10,11 +10,15 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def _get_api_credentials() -> tuple[int, str]:
-    """Read Telegram API credentials at call time so runtime .env changes are picked up."""
-    from globals import API_APP, API_HASH
-    return (int(API_APP) if API_APP else 0, API_HASH or "")
+    """Read Telegram API credentials at call time so runtime config changes are picked up."""
+    from runtime_config import get_telegram_credentials
+    return get_telegram_credentials()
 
-CHANNEL_ID = -1001881641339
+
+def _get_channel_id() -> int:
+    """Return the monitored Telegram channel ID (configurable via Settings or .env)."""
+    from runtime_config import get_telegram_channel_id
+    return get_telegram_channel_id()
 # Allow overriding session path via env var so Docker can mount it on a named volume.
 SESSION_FILE = os.environ.get(
     "TELETHON_SESSION",
@@ -54,7 +58,7 @@ async def fetch_tips_list(limit=50):
     """Fetch tips using the shared persistent client (no event-loop churn)."""
     tips = []
     client = await _get_client()          # reuse the long-lived auth client
-    async for msg in client.iter_messages(CHANNEL_ID, limit=limit):
+    async for msg in client.iter_messages(_get_channel_id(), limit=limit):
         if is_tip(msg.text):
             tip = parse_tip(msg.text)
             utc_date = msg.date.replace(tzinfo=timezone.utc) if msg.date.tzinfo is None else msg.date
@@ -71,8 +75,8 @@ async def read_tips(limit=50):
     """Fetch recent tip messages from the channel."""
     api_id, api_hash = _get_api_credentials()
     async with TelegramClient(SESSION_FILE, api_id, api_hash) as client:
-        print(f"Fetching last {limit} messages from channel {CHANNEL_ID}...\n")
-        async for msg in client.iter_messages(CHANNEL_ID, limit=limit):
+        print(f"Fetching last {limit} messages from channel {_get_channel_id()}...\n")
+        async for msg in client.iter_messages(_get_channel_id(), limit=limit):
             if is_tip(msg.text):
                 tip = parse_tip(msg.text)
                 print(f"[{msg.date.strftime('%Y-%m-%d %H:%M')}]")
@@ -100,7 +104,7 @@ async def listen_live():
                 print(f"  Raw     : {tip['raw']}")
                 print()
 
-        client.add_event_handler(_handler, events.NewMessage(chats=CHANNEL_ID))
+        client.add_event_handler(_handler, events.NewMessage(chats=_get_channel_id()))
 
         await client.run_until_disconnected()
 

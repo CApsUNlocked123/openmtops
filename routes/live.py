@@ -12,12 +12,13 @@ from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, session, flash
 
 import price_feed
-from dhan import dhan, dhan_context
+from dhan_broker import dhan, dhan_context
 from dhanhq import MarketFeed
 
 bp = Blueprint("live", __name__)
 
 TRADES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trades")
+os.makedirs(TRADES_DIR, exist_ok=True)
 
 # ── Server-side trade state (single user local app) ───────────────────────────
 _trade: dict = {"state": "idle"}

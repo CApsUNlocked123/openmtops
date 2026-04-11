@@ -5,7 +5,6 @@ from signal_engine import (
     generate_signal,
     _collect_counter_reasons,
     _round_premium,
-    _get_entry,
 )
 
 
@@ -14,11 +13,14 @@ from signal_engine import (
 def _health(score):
     return {"score": score}
 
+
 def _linear(score):
     return {"score": score}
 
+
 def _vel(v_type):
     return {"type": v_type}
+
 
 def _oi_snap(spot, strikes, ce_ltps, pe_ltps):
     rows = [
@@ -112,7 +114,7 @@ class TestGenerateSignal:
             spot=23000,
             strikes=[22900, 23000, 23100],
             ce_ltps=[120.0, 85.0, 55.0],
-            pe_ltps=[50.0,  85.0, 120.0],
+            pe_ltps=[50.0, 85.0, 120.0],
         )
 
     def test_no_trade_when_counter_signals_active(self):
@@ -162,7 +164,7 @@ class TestGenerateSignal:
             instrument="NIFTY",
             regime="IMPULSE_UP",
             phase="BREAKOUT",
-            health=_health(45),     # below _MIN_HEALTH_SCORE (50)
+            health=_health(45),        # below _MIN_HEALTH_SCORE (50)
             linear_score=_linear(60),  # below _MIN_LINEAR_SCORE (65)
             velocity=_vel("UP"),
             oi_snap=None,
@@ -241,7 +243,7 @@ class TestGenerateSignal:
             oi_snap=self._snap(),
             spot=23000,
         )
-        first  = generate_signal(**kwargs)
+        first = generate_signal(**kwargs)
         second = generate_signal(**kwargs)
         assert first["is_new"] is True
         assert second["is_new"] is False
@@ -251,7 +253,7 @@ class TestGenerateSignal:
         wait = generate_signal(
             instrument="NIFTY_CHANGE",
             regime="IMPULSE_UP",
-            phase="ACCUMULATION",     # not in _BUY_PHASE_TRIGGERS → WAIT
+            phase="ACCUMULATION",  # not in _BUY_PHASE_TRIGGERS → WAIT
             health=_health(70),
             linear_score=_linear(70),
             velocity=_vel("UP"),

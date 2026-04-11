@@ -1,5 +1,4 @@
 """Unit tests for indicators.py — pure functions, no external I/O."""
-import pandas as pd
 import pytest
 from indicators import (
     calculate_max_pain,
@@ -24,8 +23,8 @@ class TestMaxPain:
         # (above 23000 no puts expire ITM) → max pain shifts higher
         df = make_oi_df(
             strikes=[22900, 23000, 23100, 23200],
-            ce_ois  =[  500,   500,   500,   500],
-            pe_ois  =[  500, 10000,   500,   500],
+            ce_ois=[500, 500, 500, 500],
+            pe_ois=[500, 10000, 500, 500],
         )
         result = calculate_max_pain(df)
         assert result >= 23000
@@ -90,8 +89,8 @@ class TestClassifyOiLevels:
     def test_all_zero_oi_returns_empty(self, simple_df):
         df = simple_df.copy()
         df["total_oi"] = 0
-        df["ce_oi"]    = 0
-        df["pe_oi"]    = 0
+        df["ce_oi"] = 0
+        df["pe_oi"] = 0
         assert classify_oi_levels(df) == []
 
     def test_pure_call_wall(self):
@@ -123,11 +122,11 @@ class TestClassifyOiLevels:
 
     def test_tier1_is_highest_oi(self, skewed_df):
         levels = classify_oi_levels(skewed_df)
-        tier1 = [l for l in levels if l["tier"] == 1]
+        tier1 = [lv for lv in levels if lv["tier"] == 1]
         assert len(tier1) >= 1
         # The single highest-OI level must be in tier 1
         max_oi_strike = skewed_df.loc[skewed_df["total_oi"].idxmax(), "strike"]
-        assert any(l["strike"] == max_oi_strike for l in tier1)
+        assert any(lv["strike"] == max_oi_strike for lv in tier1)
 
 
 # ── assess_oi_clarity ─────────────────────────────────────────────────────────

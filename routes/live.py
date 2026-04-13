@@ -66,40 +66,59 @@ def _save_trade(exit_ltp: float, exit_oid, reason: str):
     return pnl
 
 
+def _extract_error(resp: dict) -> str:
+    """Pull a readable error string from a Dhan API response."""
+    remarks = resp.get("remarks")
+    if isinstance(remarks, dict):
+        return remarks.get("error_message") or remarks.get("errorMessage") or str(remarks)
+    if remarks:
+        return str(remarks)
+    data = resp.get("data")
+    if isinstance(data, dict):
+        return data.get("error_message") or data.get("message") or str(data)
+    return "Order rejected by broker"
+
+
 def _do_buy(ltp: float):
     _trade["state"] = "ordering"
     if _sio:
         _sio.emit("trade_update", {"state": "ordering", "ltp": ltp})
 
-    resp = dhan.place_order(
-        security_id     = _trade["security_id"],
-        exchange_segment= dhan.NSE_FNO,
-        transaction_type= dhan.BUY,
-        quantity        = _trade["quantity"],
-        order_type      = dhan.MARKET,
-        product_type    = dhan.INTRA,
-        price           = 0,
-    )
+    try:
+        resp = dhan.place_order(
+            security_id=_trade["security_id"],
+            exchange_segment=dhan.NSE_FNO,
+            transaction_type=dhan.BUY,
+            quantity=_trade["quantity"],
+            order_type=dhan.MARKET,
+            product_type=dhan.INTRA,
+            price=0,
+        )
+    except Exception as exc:
+        _trade["state"] = "watching"
+        if _sio:
+            _sio.emit("trade_update", {"state": "watching", "error": f"Order error: {exc}"})
+        return
 
     if resp.get("status") == "success":
         _trade.update(
-            state      = "active",
-            order_id   = resp["data"].get("orderId"),
-            buy_price  = ltp,
-            order_time = datetime.now().isoformat(),
+            state=      "active",
+            order_id=   resp["data"].get("orderId"),
+            buy_price=  ltp,
+            order_time= datetime.now().isoformat(),
         )
         if _sio:
             _sio.emit("trade_update", {
-                "state":     "active",
+                "state":    "active",
                 "buy_price": ltp,
-                "order_id":  _trade["order_id"],
+                "order_id": _trade["order_id"],
             })
     else:
         _trade["state"] = "watching"
         if _sio:
             _sio.emit("trade_update", {
                 "state": "watching",
-                "error": resp.get("remarks", "Order failed"),
+                "error": f"Order failed: {_extract_error(resp)}",
             })
 
 
@@ -108,26 +127,35 @@ def _do_exit(ltp: float, reason: str):
     if _sio:
         _sio.emit("trade_update", {"state": "exiting", "ltp": ltp, "reason": reason})
 
-    resp     = dhan.place_order(
-        security_id     = _trade["security_id"],
-        exchange_segment= dhan.NSE_FNO,
-        transaction_type= dhan.SELL,
-        quantity        = _trade["quantity"],
-        order_type      = dhan.MARKET,
-        product_type    = dhan.INTRA,
-        price           = 0,
-    )
+    try:
+        resp = dhan.place_order(
+            security_id=_trade["security_id"],
+            exchange_segment=dhan.NSE_FNO,
+            transaction_type=dhan.SELL,
+            quantity=_trade["quantity"],
+            order_type=dhan.MARKET,
+            product_type=dhan.INTRA,
+            price=0,
+        )
+    except Exception as exc:
+        _trade["state"] = "active"
+        if _sio:
+            _sio.emit("trade_update", {
+                "state": "active",
+                "error": f"Exit order error: {exc}. Exit manually.",
+            })
+        return
+
     order_ok = resp.get("status") == "success"
     exit_oid = resp.get("data", {}).get("orderId") if order_ok else None
 
     if not order_ok:
         # Order failed — stay active so the user can retry manually
         _trade["state"] = "active"
-        err = resp.get("remarks") or resp.get("data") or "Order rejected"
         if _sio:
             _sio.emit("trade_update", {
                 "state": "active",
-                "error": f"Exit order FAILED: {err}. Exit manually.",
+                "error": f"Exit order FAILED: {_extract_error(resp)}. Exit manually.",
             })
         return
 
@@ -147,15 +175,21 @@ def _do_exit(ltp: float, reason: str):
 
 def _do_partial_exit(ltp: float, qty: int):
     """Sell a partial quantity at market. Updates _trade["quantity"] on success."""
-    resp = dhan.place_order(
-        security_id     = _trade["security_id"],
-        exchange_segment= dhan.NSE_FNO,
-        transaction_type= dhan.SELL,
-        quantity        = qty,
-        order_type      = dhan.MARKET,
-        product_type    = dhan.INTRA,
-        price           = 0,
-    )
+    try:
+        resp = dhan.place_order(
+            security_id=_trade["security_id"],
+            exchange_segment=dhan.NSE_FNO,
+            transaction_type=dhan.SELL,
+            quantity=qty,
+            order_type=dhan.MARKET,
+            product_type=dhan.INTRA,
+            price=0,
+        )
+    except Exception as exc:
+        if _sio:
+            _sio.emit("trade_update", {"state": "active", "error": f"Partial exit error: {exc}"})
+        return False
+
     if resp.get("status") == "success":
         remaining          = _trade["quantity"] - qty
         _trade["quantity"] = remaining
@@ -169,11 +203,10 @@ def _do_partial_exit(ltp: float, qty: int):
             })
         return True
     else:
-        err = resp.get("remarks") or resp.get("data") or "Order rejected"
         if _sio:
             _sio.emit("trade_update", {
                 "state": "active",
-                "error": f"Partial exit FAILED: {err}",
+                "error": f"Partial exit FAILED: {_extract_error(resp)}",
             })
         return False
 

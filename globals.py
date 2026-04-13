@@ -5,7 +5,7 @@ load_dotenv()  # reads .env from project root (no-op if file absent)
 
 API_APP  = os.getenv("TELEGRAM_API_APP",  "")
 API_HASH = os.getenv("TELEGRAM_API_HASH", "")
-APP      = "CATrader"
+APP      = "OpenMTOps"
 
 DHAN_ACCESSTOKEN = os.getenv("DHAN_ACCESSTOKEN", "")
 DHAN_CLIENTID    = os.getenv("DHAN_CLIENTID",    "")

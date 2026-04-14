@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}ActiveTip — OpenMTOps{% endblock %}
+
+{% block content %}
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <h2 class="fw-bold mb-1">📡 ActiveTip</h2>
+    <p class="stat-label mb-0">Telegram F&amp;O signals</p>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <select id="limit-sel" class="form-select form-select-sm" style="width:auto;">
+      {% for v in [20, 50, 100, 200] %}
+        <option value="{{ v }}" {% if v == limit %}selected{% endif %}>{{ v }} messages</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-outline-secondary btn-sm" onclick="refreshTips()">↺ Refresh</button>
+  </div>
+</div>
+
+<!-- ── Tips table ─────────────────────────────────────────────────────── -->
+{% if tips %}
+<div class="mb-2">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="section-label mb-0">{{ tips|length }} tips found</div>
+    <span class="stat-label">Source: Telegram · click a row to select</span>
+  </div>
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Symbol</th>
+            <th>Strike</th>
+            <th>Type</th>
+            <th>Entry</th>
+            <th>SL</th>
+            <th>Targets</th>
+          </tr>
+        </thead>
+        <tbody id="tips-body">
+          {% for tip in tips %}
+          <tr class="tip-row" data-idx="{{ loop.index0 }}" style="cursor:pointer;">
+            <td class="text-secondary small">{{ tip.date }}</td>
+            <td class="fw-semibold">{{ tip.symbol or '—' }}</td>
+            <td>{{ tip.strike or '—' }}</td>
+            <td>
+              {% if tip.type == 'CE' %}
+                <span class="badge-buy">CE</span>
+              {% elif tip.type == 'PE' %}
+                <span class="badge-sell">PE</span>
+              {% else %}
+                <span class="badge-neutral">—</span>
+              {% endif %}
+            </td>
+            <td>{{ tip.entry or '—' }}</td>
+            <td>{{ tip.sl or '—' }}</td>
+            <td class="text-secondary small">{{ tip.targets | join(', ') if tip.targets else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5">
+    <div style="font-size:2rem;margin-bottom:8px;">📡</div>
+    <div class="stat-label">No tips found</div>
+    <div style="font-size:0.80rem;color:var(--text-secondary);margin-top:4px;">
+      Try increasing the scan range above, or check Telegram connection in Settings.
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Selected tip detail ─────────────────────────────────────────────── -->
+<div id="tip-detail" class="d-none mt-4">
+  <div class="section-label mb-2">Selected Tip</div>
+  <div class="card">
+    <div class="card-body">
+      <div class="row g-3 mb-3">
+        <div class="col-6 col-md-3">
+          <div class="stat-label mb-1">Instrument</div>
+          <div class="fw-bold" id="det-instrument">—</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-label mb-1">Entry (above)</div>
+          <div class="fw-bold" style="color:var(--green);" id="det-entry">—</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-label mb-1">Stop Loss</div>
+          <div class="fw-bold" style="color:var(--red);" id="det-sl">—</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-label mb-1">Targets</div>
+          <div class="fw-bold" style="color:var(--blue);" id="det-targets">—</div>
+        </div>
+      </div>
+
+      <pre class="rounded p-3 small mb-3"
+           style="background:var(--bg-card-raised);border:1px solid var(--border);
+                  white-space:pre-wrap;color:var(--text-secondary);"
+           id="det-raw"></pre>
+
+      <div id="det-lookup" class="mb-3 small" style="color:var(--text-secondary);"></div>
+
+      <form method="post" action="/tips/execute" id="execute-form" class="d-none">
+        <input type="hidden" name="symbol"      id="form-symbol">
+        <input type="hidden" name="strike"      id="form-strike">
+        <input type="hidden" name="option_type" id="form-otype">
+        <input type="hidden" name="entry"       id="form-entry">
+        <input type="hidden" name="sl"          id="form-sl">
+        <input type="hidden" name="targets"     id="form-targets">
+        <button type="submit" class="btn btn-success">
+          ▶ Watch in ActiveTrade
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden tip data for JS -->
+<script>var TIPS = {{ tips | tojson }};</script>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  'use strict';
+
+  function refreshTips() {
+    var limit = document.getElementById('limit-sel').value;
+    window.location.href = '/tips/refresh?limit=' + limit;
+  }
+  window.refreshTips = refreshTips;
+
+  document.querySelectorAll('.tip-row').forEach(function (row) {
+    row.addEventListener('click', function () {
+      document.querySelectorAll('.tip-row').forEach(function (r) {
+        r.classList.remove('table-active');
+      });
+      row.classList.add('table-active');
+
+      var idx  = parseInt(row.dataset.idx, 10);
+      var tip  = TIPS[idx];
+      var detail = document.getElementById('tip-detail');
+      detail.classList.remove('d-none');
+
+      document.getElementById('det-instrument').textContent =
+        (tip.symbol || '?') + ' ' + (tip.strike || '') + ' ' + (tip.type || '');
+      document.getElementById('det-entry').textContent   = tip.entry   || 'N/A';
+      document.getElementById('det-sl').textContent      = tip.sl      || 'N/A';
+      document.getElementById('det-targets').textContent = (tip.targets || []).join(', ') || 'N/A';
+      document.getElementById('det-raw').textContent     = tip.raw     || '';
+
+      document.getElementById('form-symbol').value  = tip.symbol || '';
+      document.getElementById('form-strike').value  = tip.strike || '';
+      document.getElementById('form-otype').value   = tip.type   || '';
+      document.getElementById('form-entry').value   = tip.entry  || '';
+      document.getElementById('form-sl').value      = tip.sl     || '';
+      document.getElementById('form-targets').value = (tip.targets || []).join(',');
+
+      var execForm  = document.getElementById('execute-form');
+      var lookupDiv = document.getElementById('det-lookup');
+
+      if (tip.symbol && tip.strike && tip.type) {
+        lookupDiv.textContent = 'Looking up security…';
+        fetch('/tips/lookup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: tip.symbol, strike: tip.strike, type: tip.type }),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.found) {
+            lookupDiv.textContent =
+              'ID: ' + d.security_id + '  ·  ' + d.trading_symbol +
+              '  ·  Expiry: ' + (d.expiry ? d.expiry.slice(0, 10) : '?') +
+              '  ·  Lot: ' + d.lot_size;
+            execForm.classList.remove('d-none');
+          } else {
+            lookupDiv.textContent = 'Security not found in instrument master.';
+            execForm.classList.add('d-none');
+          }
+        })
+        .catch(function () {
+          lookupDiv.textContent = 'Lookup failed.';
+          execForm.classList.add('d-none');
+        });
+      } else {
+        execForm.classList.add('d-none');
+        lookupDiv.textContent = 'Incomplete tip — cannot execute.';
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}

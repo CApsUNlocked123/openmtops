@@ -32,6 +32,8 @@ import routes.notifications as notif_mod
 import routes.setup       as setup_mod
 import routes.activetrade as activetrade_mod
 import routes.scanner     as scanner_mod
+import routes.profile     as profile_mod
+import routes.scan        as scan_mod
 import candle_service
 import notification_service
 
@@ -63,6 +65,8 @@ def create_app() -> Flask:
     app.register_blueprint(notif_mod.bp)
     app.register_blueprint(activetrade_mod.bp)
     app.register_blueprint(scanner_mod.bp)
+    app.register_blueprint(profile_mod.bp)
+    app.register_blueprint(scan_mod.bp)
 
     # ── Register SocketIO events from route modules ────────────────────────────
     live_mod.register_socketio(socketio)
@@ -76,6 +80,8 @@ def create_app() -> Flask:
         "/settings/tg/2fa", "/settings/tg/reauth", "/settings/dhan",
         "/settings/restarting",
         "/settings/telegram/api", "/settings/telegram/channel", "/settings/pin",
+        "/profile",
+        "/tip",
     }
 
     SETUP_PATHS = {

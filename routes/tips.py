@@ -46,6 +46,13 @@ def api_tips():
 
 
 @bp.route("/tips")
+def tips_redirect():
+    """Legacy URL — permanent redirect to new primary /tip."""
+    args = request.query_string.decode()
+    return redirect(f"/tip{'?' + args if args else ''}", 301)
+
+
+@bp.route("/tip")
 def tips_page():
     limit  = int(request.args.get("limit", 50))
     cached = session.get("tips_cache_limit")
@@ -60,7 +67,7 @@ def tips_page():
             session["tips"] = []
 
     tips = session.get("tips", [])
-    return render_template("tips.html", tips=tips, limit=limit)
+    return render_template("tip.html", tips=tips, limit=limit)
 
 
 @bp.route("/tips/refresh")
@@ -68,7 +75,7 @@ def refresh_tips():
     session.pop("tips", None)
     session.pop("tips_cache_limit", None)
     limit = int(request.args.get("limit", 50))
-    return redirect(f"/tips?limit={limit}")
+    return redirect(f"/tip?limit={limit}")
 
 
 @bp.route("/tips/lookup", methods=["POST"])
@@ -95,7 +102,7 @@ def execute_tip():
     sec = lookup_security(symbol, strike, option_type)
     if not sec:
         flash("Security not found in instrument master.", "warning")
-        return redirect("/tips")
+        return redirect("/tip")
 
     targets = [t.strip() for t in targets_raw.split(",") if t.strip()]
 
@@ -108,5 +115,6 @@ def execute_tip():
         "entry":          entry,
         "sl":             sl,
         "targets":        targets,
+        "mode":           "single",
     }
-    return redirect("/activetrade")
+    return redirect("/trade")

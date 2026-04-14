@@ -7,7 +7,7 @@ from flask import Blueprint, render_template, request, redirect, session, jsonif
 from flask_socketio import join_room, leave_room
 
 import price_feed
-from dhan import dhan, dhan_context
+from dhan_broker import dhan, dhan_context
 from dhanhq import MarketFeed
 from indicators import (
     build_oi_df, calculate_max_pain, calculate_pcr, classify_pcr,

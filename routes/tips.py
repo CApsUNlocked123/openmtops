@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, session, flash, jsonify
-from tgwrap import get_tips
-from dhan import dhan, lookup_security
+from telegram_client import get_tips
+from dhan_broker import dhan, lookup_security
 import os
 
 bp = Blueprint("tips", __name__)

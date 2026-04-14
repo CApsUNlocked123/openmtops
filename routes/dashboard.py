@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify
 
-import globals as g
+import config as g
 import candle_service
 from candle_service import INSTRUMENT_NAMES
 from indicators_dashboard import (

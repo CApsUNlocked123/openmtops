@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Setup — OpenMTOps{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    body { display:flex; align-items:flex-start; justify-content:center; min-height:100vh; padding-top:2rem; }
+    .setup-card { width:100%; max-width:540px; }
+    .step-pip   { width:10px; height:10px; border-radius:50%; background:rgba(255,255,255,.2); display:inline-block; }
+    .step-pip.active { background: #9C27B0; }
+    .step-pip.done   { background: #00e676; }
+  </style>
+</head>
+<body>
+<div class="setup-card">
+
+  {# Logo + brand #}
+  <div class="text-center mb-3">
+    <img src="/static/assets/darkLarge.png" alt="OpenMTOps" style="height:64px; margin-bottom:10px;">
+    <h4 class="fw-bold mb-0">OpenMTOps</h4>
+    <p class="text-secondary small mb-0">First-run setup</p>
+  </div>
+
+  {# Step progress pills #}
+  {% if current_step %}
+  <div class="text-center mb-3 d-flex justify-content-center gap-2 align-items-center">
+    {% for i in range(1, 5) %}
+      <span class="step-pip {% if i < current_step %}done{% elif i == current_step %}active{% endif %}"></span>
+    {% endfor %}
+    <span class="text-secondary small ms-1">Step {{ current_step }} of 4</span>
+  </div>
+  {% endif %}
+
+  {# Flash messages #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for cat, msg in messages %}
+        <div class="alert alert-{{ cat }} alert-dismissible fade show mb-3" role="alert">
+          {{ msg }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

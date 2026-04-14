@@ -1,0 +1,34 @@
+# OpenMTOps systemd service unit
+#
+# ── Quick deploy ────────────────────────────────────────────────────────────
+#   sudo cp deployment/openmtops.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now openmtops
+#   sudo systemctl status openmtops
+#   sudo journalctl -u openmtops -f
+#
+# ── Edit the three lines below before deploying ─────────────────────────────
+#   Replace /home/ubuntu/openmtops with your actual install path.
+# ────────────────────────────────────────────────────────────────────────────
+
+[Unit]
+Description=OpenMTOps Trading App
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/openmtops
+ExecStart=/home/ubuntu/openmtops/.venv/bin/python app.py
+
+Restart=always
+RestartSec=3
+
+# .env is written automatically by the setup wizard (/setup/complete)
+# and updated on every Settings page save. Never commit this file.
+EnvironmentFile=/home/ubuntu/openmtops/.env
+
+StandardOutput=append:/home/ubuntu/openmtops/logs/app.log
+StandardError=append:/home/ubuntu/openmtops/logs/error.log
+
+[Install]
+WantedBy=multi-user.target

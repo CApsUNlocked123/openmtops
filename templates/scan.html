@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}ActiveScan — OpenMTOps{% endblock %}
+
+{% block content %}
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <h2 class="fw-bold mb-1">🔍 ActiveScan</h2>
+    <p class="stat-label mb-0">Strategy signals &amp; regime analysis</p>
+  </div>
+</div>
+
+<!-- ── Instrument selector ───────────────────────────────────────────────── -->
+<div class="mb-4">
+  <div class="section-label mb-2">Instrument</div>
+  <div class="d-flex gap-2 flex-wrap" id="inst-selector">
+    {% set default_inst = instrument | default("NIFTY") %}
+    {% for inst in ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"] %}
+    <button class="inst-btn {% if inst == default_inst %}active{% endif %}"
+            data-inst="{{ inst }}">{{ inst }}</button>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ── Widget grid ───────────────────────────────────────────────────────── -->
+<div class="row g-3" id="widget-grid">
+  {% for widget in widgets %}
+  <div class="col-12 col-md-6 col-lg-4">
+    <div class="widget-card" id="widget-slot-{{ widget.slug }}" data-slug="{{ widget.slug }}">
+      <!-- Loading skeleton until JS mounts -->
+      <div class="widget-header">
+        <span class="widget-title">{{ widget.icon }} {{ widget.name }}</span>
+        <span style="font-size:0.72rem;color:var(--text-secondary);">loading…</span>
+      </div>
+      <div style="height:80px;display:flex;align-items:center;justify-content:center;
+                  color:var(--text-secondary);font-size:0.80rem;">
+        Fetching signal…
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Tip: pre-fill execute form from signal -->
+<div id="scan-execute-modal" class="d-none mt-4">
+  <div class="section-label mb-2">Execute Signal</div>
+  <div class="card">
+    <div class="card-body">
+      <form method="post" action="/scan/execute" id="scan-exec-form">
+        <div class="row g-2 mb-3">
+          <div class="col-6 col-md-3">
+            <label class="stat-label mb-1">Symbol</label>
+            <input type="text" name="symbol" id="se-symbol" class="form-control form-control-sm" readonly>
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="stat-label mb-1">Strike</label>
+            <input type="text" name="strike" id="se-strike" class="form-control form-control-sm">
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="stat-label mb-1">Type</label>
+            <select name="option_type" id="se-otype" class="form-select form-select-sm">
+              <option value="CE">CE</option>
+              <option value="PE">PE</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="stat-label mb-1">Entry</label>
+            <input type="text" name="entry" id="se-entry" class="form-control form-control-sm">
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="stat-label mb-1">SL</label>
+            <input type="text" name="sl" id="se-sl" class="form-control form-control-sm">
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="stat-label mb-1">Targets</label>
+            <input type="text" name="targets" id="se-targets" class="form-control form-control-sm" placeholder="t1,t2">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-success">▶ Watch in ActiveTrade</button>
+        <button type="button" class="btn btn-outline-secondary ms-2"
+                onclick="document.getElementById('scan-execute-modal').classList.add('d-none')">Cancel</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<!-- Pre-load all widget JS as globals (must happen before mount calls) -->
+{% for widget in widgets %}
+<script src="/static/js/widgets/{{ widget.slug }}.js"></script>
+{% endfor %}
+
+<script>
+(function () {
+  'use strict';
+
+  // ── State ──────────────────────────────────────────────────────────────
+  let _instrument = '{{ instrument | default("NIFTY") }}';
+  const _socket   = typeof io !== 'undefined' ? io() : { on: function(){}, off: function(){} };
+
+  // Slugs from the server-rendered widget list
+  const _slugs = [{% for widget in widgets %}'{{ widget.slug }}'{% if not loop.last %}, {% endif %}{% endfor %}];
+
+  // ── Mount / unmount helpers ────────────────────────────────────────────
+
+  function _mountWidget(slug) {
+    const container = document.getElementById('widget-slot-' + slug);
+    if (!container) return;
+
+    fetch('/scan/widget/' + slug + '?instrument=' + _instrument)
+      .then(function (r) { return r.ok ? r.text() : '<p class="text-danger small">Error loading widget.</p>'; })
+      .then(function (html) {
+        container.innerHTML = html;
+        const registry = window.WidgetRegistry || {};
+        if (registry[slug] && typeof registry[slug].mount === 'function') {
+          registry[slug].mount(container, _socket, _instrument);
+        }
+      })
+      .catch(function () {
+        container.innerHTML = '<p class="text-danger small">Failed to load widget.</p>';
+      });
+  }
+
+  function _unmountWidget(slug) {
+    const registry = window.WidgetRegistry || {};
+    if (registry[slug] && typeof registry[slug].unmount === 'function') {
+      registry[slug].unmount();
+    }
+  }
+
+  function _mountAll() {
+    _slugs.forEach(_mountWidget);
+  }
+
+  function _unmountAll() {
+    _slugs.forEach(_unmountWidget);
+  }
+
+  // ── Instrument selector ────────────────────────────────────────────────
+
+  document.querySelectorAll('#inst-selector .inst-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (btn.dataset.inst === _instrument) return;
+      document.querySelectorAll('#inst-selector .inst-btn').forEach(function (b) {
+        b.classList.remove('active');
+      });
+      btn.classList.add('active');
+      _instrument = btn.dataset.inst;
+      _unmountAll();
+      _mountAll();
+    });
+  });
+
+  // ── Boot ───────────────────────────────────────────────────────────────
+
+  _mountAll();
+
+})();
+</script>
+{% endblock %}

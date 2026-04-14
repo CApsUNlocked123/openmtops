@@ -4,18 +4,27 @@ ActiveTrade — 80/20 split screen: Strategy Dashboard (left) + Live Trade Panel
 Trade initialisation mirrors routes/live.py GET /live exactly.
 routes/live.py is NOT modified — its module-level _trade dict, _check_auto_trade,
 _do_exit and SocketIO helpers are reused via direct module import.
+
+Primary URL: /trade   (legacy /activetrade → 301 → /trade)
 """
 
-from flask import Blueprint, render_template, session, redirect, request, jsonify
+from flask import Blueprint, render_template, session, redirect, request, jsonify, flash
 from math import floor
 
 import price_feed
-from dhan_broker import dhan, dhan_context
+from dhan_broker import dhan, dhan_context, lookup_security
 from candle_service import INSTRUMENT_NAMES
 
 bp = Blueprint("activetrade", __name__)
 
 _MAX_LOTS = 20
+INDICES   = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"]
+
+
+@bp.route("/activetrade")
+def activetrade_alias():
+    """Legacy URL — permanent redirect to new primary /trade."""
+    return redirect("/trade", 301)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -82,7 +91,7 @@ def _init_trade_from_session(params: dict) -> None:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
-@bp.route("/activetrade")
+@bp.route("/trade")
 def activetrade_page():
     import routes.live as _live
 
@@ -96,10 +105,6 @@ def activetrade_page():
         # Never reinitialise mid-execution — an open position must be exited first.
         position_live = current_state in ("active", "ordering", "exiting", "exiting_guard")
 
-        # Reinitialise when:
-        #   a) No security loaded yet (first visit), OR
-        #   b) Instrument changed (user set up a different trade), OR
-        #   c) State is idle (previous trade finished / cancelled)
         need_init = (
             not position_live
             and (current_sid != new_sid or current_state == "idle")
@@ -111,9 +116,50 @@ def activetrade_page():
     return render_template("activetrade.html", trade=trade, instruments=INSTRUMENT_NAMES)
 
 
+@bp.route("/trade/setup", methods=["POST"])
+def trade_setup():
+    """Inline setup form submission — stores session and returns to /trade."""
+    instrument  = request.form.get("instrument", "NIFTY").upper()
+    strike      = request.form.get("strike", "").strip()
+    option_type = request.form.get("option_type", "CE").upper()
+    entry       = request.form.get("entry", "").strip()
+    sl          = request.form.get("sl", "").strip()
+    targets_raw = request.form.get("targets", "").strip()
+    lots_manual = request.form.get("lots_manual", "").strip()
+
+    if not entry or not targets_raw:
+        flash("Entry and at least one target are required.", "warning")
+        return redirect("/trade")
+
+    targets = [t.strip() for t in targets_raw.split(",") if t.strip()]
+
+    try:
+        sec = lookup_security(instrument, strike, option_type)
+    except Exception as e:
+        flash(f"Instrument lookup failed: {e}", "danger")
+        return redirect("/trade")
+    if not sec:
+        flash(f"No contract found for {instrument} {strike} {option_type}.", "warning")
+        return redirect("/trade")
+
+    session["watching"] = {
+        "security_id":      sec["security_id"],
+        "trading_symbol":   sec["trading_symbol"],
+        "expiry":           sec["expiry"],
+        "lot_size":         sec["lot_size"],
+        "exchange_segment": sec["exchange_segment"],
+        "entry":            entry,
+        "sl":               sl,
+        "targets":          targets,
+        "lots_override":    int(lots_manual) if lots_manual else None,
+        "mode":             "single",
+    }
+    return redirect("/trade")
+
+
 @bp.route("/activetrade/exit", methods=["POST"])
 def activetrade_exit():
-    """Manual exit — mirrors /live/exit but stays on /activetrade afterwards."""
+    """Manual exit — mirrors /live/exit but stays on /trade afterwards."""
     import routes.live as _live
 
     if _live._trade.get("state") == "active":
@@ -124,7 +170,7 @@ def activetrade_exit():
         _live._do_exit(ltp, "MANUAL")
 
     session.pop("watching", None)
-    return redirect("/activetrade")
+    return redirect("/trade")
 
 
 @bp.route("/activetrade/cancel", methods=["POST"])
@@ -132,12 +178,11 @@ def activetrade_cancel():
     """Cancel watching / reset trade state without placing any order."""
     import routes.live as _live
     state = _live._trade.get("state")
-    # Only cancel safe (non-position) states — refuse if a real order is live.
     if state not in ("active", "ordering", "exiting", "exiting_guard"):
         price_feed.stop_feed()
         _live._trade.update(state="idle")
     session.pop("watching", None)
-    return redirect("/activetrade")
+    return redirect("/trade")
 
 
 @bp.route("/activetrade/clear", methods=["POST"])

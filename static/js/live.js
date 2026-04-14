@@ -1,6 +1,11 @@
 /* Live trade page — SocketIO client */
 
-function initLivePage(securityId, entry, sl, target1, quantity) {
+function initLivePage(securityId, entry, sl, target1, quantity, opts) {
+  // opts.afterTradeUrl — where to navigate after trade_done.
+  //   undefined / omitted → "/" (home, default behaviour for /live page)
+  //   null               → stay on page (used by /activetrade)
+  const afterTradeUrl = (opts && "afterTradeUrl" in opts) ? opts.afterTradeUrl : "/";
+
   const socket = io();
 
   let currentLtp  = null;
@@ -89,12 +94,20 @@ function initLivePage(securityId, entry, sl, target1, quantity) {
     }
   });
 
-  // ── Trade done → redirect home ───────────────────────────────────────────
+  // ── Trade done ────────────────────────────────────────────────────────────
   socket.on("trade_done", (data) => {
-    const pnl  = data.pnl >= 0 ? `+₹${data.pnl.toFixed(0)}` : `-₹${Math.abs(data.pnl).toFixed(0)}`;
-    const msg  = `Trade closed (${data.reason}) — P&L: ${pnl}`;
+    const pnl = data.pnl >= 0 ? `+₹${data.pnl.toFixed(0)}` : `-₹${Math.abs(data.pnl).toFixed(0)}`;
+    const msg = `Trade closed (${data.reason}) — P&L: ${pnl}`;
     setStateBanner("exiting", msg);
-    setTimeout(() => { window.location.href = "/"; }, 2500);
+
+    if (afterTradeUrl) {
+      // Default: navigate away (e.g. home from /live page)
+      setTimeout(() => { window.location.href = afterTradeUrl; }, 2500);
+    } else {
+      // Stay on page (activetrade) — clear the watching session so a refresh
+      // shows "no active trade" instead of reinitialising the same instrument.
+      fetch("/activetrade/clear", { method: "POST" }).catch(() => {});
+    }
   });
 
   // ── Helper ───────────────────────────────────────────────────────────────

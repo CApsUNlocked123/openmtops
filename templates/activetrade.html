@@ -1,0 +1,450 @@
+{% extends "base.html" %}
+{% block title %}ActiveTrade{% if trade %} — {{ trade.trading_symbol }}{% endif %}{% endblock %}
+
+{% block head %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ── Full-height split layout ─────────────────────────────────────────────── */
+/* Remove base container padding so the split fills the viewport              */
+.container-fluid.py-4 {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 56px);
+  overflow: hidden;
+}
+
+.at-split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Left 80% — strategy dashboard */
+.at-left {
+  width: 80%;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
+  border-right: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Right 20% — live trade panel */
+.at-right {
+  width: 20%;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 0.875rem;
+  background: rgba(0,0,0,0.18);
+}
+
+/* ── Dashboard styles (mirror dashboard.html) ─────────────────────────────── */
+.regime-sub { font-size: 0.82rem; opacity: 0.85; }
+.kpi-card   { border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 10px 12px; }
+.kpi-label  { font-size: 0.7rem; text-transform: uppercase; letter-spacing: .05em; color: #adb5bd; }
+.kpi-value  { font-size: 1.3rem; font-weight: 700; }
+#phase-timeline div { cursor: default; transition: opacity .15s; }
+#phase-timeline div:hover { opacity: 0.8; }
+.score-row td { vertical-align: middle; padding: 4px 6px; }
+.score-bar { height: 8px; border-radius: 4px; background: #0d6efd; transition: width .4s; }
+.health-bar-wrap { height: 12px; background: rgba(255,255,255,.1); border-radius: 6px; overflow: hidden; }
+#oi-chart, #phase-chart { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+.card.h-100 { display: flex; flex-direction: column; }
+.card.h-100 .card-body { flex: 1; min-height: 0; }
+@keyframes signalFlash {
+  0%   { box-shadow: 0 0 0 0 rgba(255,255,255,0.5); }
+  50%  { box-shadow: 0 0 0 8px rgba(255,255,255,0); }
+  100% { box-shadow: none; }
+}
+.signal-flash { animation: signalFlash 0.7s ease 2; }
+
+/* ── Compact live trade panel ─────────────────────────────────────────────── */
+.lp-title  { font-size: 0.88rem; font-weight: 700; }
+.lp-meta   { font-size: 0.68rem; color: #adb5bd; }
+.lp-card   { border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 7px 9px; margin-bottom: 0.4rem; }
+.lp-label  { font-size: 0.65rem; text-transform: uppercase; letter-spacing: .04em; color: #adb5bd; }
+.lp-value  { font-size: 1rem; font-weight: 700; line-height: 1.2; }
+.lp-banner { font-size: 0.75rem; padding: 0.35rem 0.5rem; margin-bottom: 0.5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- flash messages render here; container flex handles them gracefully -->
+
+<div class="at-split">
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       LEFT 80% — Strategy Dashboard
+       (Full feature parity with /dashboard; dashboard.js auto-polls)
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="at-left">
+
+    <!-- Controls ─────────────────────────────────────────────────────────── -->
+    <div class="d-flex align-items-center gap-3 mb-3">
+      <h5 class="fw-bold mb-0">🧠 Strategy Dashboard</h5>
+      <select id="instrument-sel" class="form-select form-select-sm w-auto">
+        {% for name in instruments %}
+          <option value="{{ name }}">{{ name }}</option>
+        {% endfor %}
+      </select>
+      <span id="status-badge" class="badge bg-secondary fs-6 px-3">Loading…</span>
+      <span id="live-candle-info" class="badge bg-warning text-dark d-none ms-2"></span>
+      <small class="text-secondary ms-auto">Snapshot 5s · OI 30s</small>
+    </div>
+
+    <!-- Panel 1: Regime Banner ───────────────────────────────────────────── -->
+    <div id="regime-banner" class="alert alert-secondary fw-bold text-center fs-5 py-2 mb-3">
+      <div id="regime-label">Waiting for data…</div>
+      <div class="regime-sub d-flex justify-content-center gap-4 mt-1">
+        <span>Phase: <strong id="phase-label">—</strong></span>
+        <span>Velocity: <strong id="velocity-label">—</strong></span>
+        <span>Spot: <strong id="spot-price">—</strong></span>
+        <span>Candles: <strong id="candle-count">—</strong></span>
+      </div>
+    </div>
+
+    <!-- Signal Card ──────────────────────────────────────────────────────── -->
+    <div id="signal-card" class="card border-secondary mb-3 d-none">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <span id="signal-action-badge" class="badge fs-6 px-3 py-2"></span>
+          <div id="signal-levels" class="d-none">
+            <span class="fw-bold" id="signal-symbol" style="font-size:1.05rem;"></span>
+            <span class="ms-3 text-secondary small">Entry</span>
+            <span class="fw-semibold ms-1" id="signal-entry"></span>
+            <span class="ms-3 text-success small">Target</span>
+            <span class="fw-semibold ms-1 text-success" id="signal-target"></span>
+            <span class="ms-3 text-danger small">SL</span>
+            <span class="fw-semibold ms-1 text-danger" id="signal-sl"></span>
+          </div>
+          <div class="ms-auto text-secondary small" id="signal-reason" style="max-width:380px;"></div>
+          <div class="text-secondary" style="font-size:0.72rem; white-space:nowrap;">
+            <span id="signal-time"></span>
+          </div>
+        </div>
+        <div id="signal-counter-wrap" class="d-none mt-2">
+          <div class="text-warning small fw-semibold mb-1">⚠ Why no trade:</div>
+          <ul id="signal-counter-list" class="mb-0 small text-warning" style="padding-left:1.2rem;"></ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panels 2+3: OI Battlefield + Greeks Momentum ─────────────────────── -->
+    <div class="row g-3 mb-3">
+
+      <div class="col-md-7">
+        <div class="card border-secondary h-100">
+          <div class="card-header fw-semibold border-secondary">📊 OI Battlefield</div>
+          <div class="card-body d-flex flex-column" style="min-height:0; flex:1;">
+            <div id="oi-unavailable" class="text-secondary text-center py-4">
+              OI Tracker not running — start it from Analyzer to enable this panel.
+            </div>
+            <div id="oi-available-content" class="d-none h-100">
+              <div class="row g-2 h-100 align-items-stretch">
+                <div class="col-10 d-flex flex-column">
+                  <div style="position:relative; flex:1; min-height:260px;">
+                    <canvas id="oi-chart"></canvas>
+                  </div>
+                </div>
+                <div class="col-2 d-flex flex-column justify-content-center align-items-center gap-3 border-start border-secondary ps-2">
+                  <div class="text-center">
+                    <div class="kpi-label" style="font-size:0.65rem;">PCR</div>
+                    <div id="pcr-value" class="fw-bold" style="font-size:1.1rem;">—</div>
+                    <span id="pcr-label" class="badge bg-secondary mt-1" style="font-size:0.65rem;">—</span>
+                  </div>
+                  <div class="text-center" style="font-size:0.7rem; line-height:1.6;">
+                    <div class="text-danger">🔴 <strong id="wall-resistance">—</strong></div>
+                    <div class="text-secondary" style="font-size:0.62rem;">Resistance</div>
+                    <div class="text-success mt-1">🟢 <strong id="wall-support">—</strong></div>
+                    <div class="text-secondary" style="font-size:0.62rem;">Support</div>
+                    <div class="text-secondary mt-2" style="font-size:0.62rem;">Nearest wall</div>
+                    <div class="fw-semibold" style="font-size:0.7rem;"><strong id="wall-distance">—</strong></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-5">
+        <div class="card border-secondary h-100">
+          <div class="card-header fw-semibold border-secondary">⚡ Greeks Momentum</div>
+          <div class="card-body d-flex flex-column gap-2">
+            <div class="row g-2">
+              <div class="col-6">
+                <div class="kpi-card">
+                  <div class="kpi-label">CE OI Δ</div>
+                  <div id="kpi-ce-delta" class="kpi-value text-danger">—</div>
+                </div>
+              </div>
+              <div class="col-6">
+                <div class="kpi-card">
+                  <div class="kpi-label">PE OI Δ</div>
+                  <div id="kpi-pe-delta" class="kpi-value text-success">—</div>
+                </div>
+              </div>
+              <div class="col-6">
+                <div class="kpi-card">
+                  <div class="kpi-label">Velocity</div>
+                  <div id="kpi-velocity" class="kpi-value">—</div>
+                </div>
+              </div>
+              <div class="col-6">
+                <div class="kpi-card">
+                  <div class="kpi-label">Trend Health</div>
+                  <div id="kpi-health-score" class="kpi-value">—</div>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="d-flex justify-content-between small mb-1">
+                <span class="text-secondary">Trend Health</span>
+                <span id="health-score-text" class="fw-semibold">—</span>
+              </div>
+              <div class="health-bar-wrap">
+                <div id="health-bar" class="progress-bar bg-success" style="width:0%;height:100%;transition:width .4s;"></div>
+              </div>
+            </div>
+            <div>
+              <div class="text-secondary small mb-1">Warnings</div>
+              <ul id="health-warnings" class="list-unstyled small mb-0 text-warning"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Panel 4: Phase Timeline ──────────────────────────────────────────── -->
+    <div class="card border-secondary mb-3">
+      <div class="card-header fw-semibold border-secondary">⏱ Phase Timeline (today)</div>
+      <div class="card-body p-2">
+        <div style="position:relative; height:180px;" class="mb-2">
+          <canvas id="phase-chart"></canvas>
+        </div>
+        <div id="phase-timeline" class="d-flex rounded overflow-hidden" style="height:24px;">
+          <div class="text-secondary small d-flex align-items-center px-3">Waiting for phase data…</div>
+        </div>
+        <div class="d-flex flex-wrap gap-3 mt-2 small text-secondary">
+          <span><span style="display:inline-block;width:10px;height:10px;background:#6c757d;border-radius:2px"></span> BASE</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:#ffc107;border-radius:2px"></span> BREAKOUT</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:#198754;border-radius:2px"></span> TREND ↑</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:#dc3545;border-radius:2px"></span> TREND ↓</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:#fd7e14;border-radius:2px"></span> EXHAUSTION</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:#0dcaf0;border-radius:2px"></span> REVERSAL</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel 5: Linear Move Scorecard ──────────────────────────────────── -->
+    <div class="card border-secondary mb-3">
+      <div class="card-header fw-semibold border-secondary">📐 Linear Move Scorecard</div>
+      <div class="card-body">
+        <div class="row align-items-center g-3">
+          <div class="col-md-3 text-center">
+            <div id="linear-score" class="display-3 fw-bold">—</div>
+            <div class="text-secondary small">/ 100</div>
+            <div id="move-banner" class="alert alert-secondary text-center fs-6 fw-bold mt-2 py-2">WAIT</div>
+          </div>
+          <div class="col-md-9">
+            <table class="table table-sm table-borderless mb-0" style="color:inherit;">
+              <tbody>
+                <tr class="score-row">
+                  <td style="width:140px" class="text-secondary">EMA Slope</td>
+                  <td style="width:40px" id="score-num-ema_slope" class="fw-semibold text-end">—</td>
+                  <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-ema_slope" class="score-bar" style="width:0%"></div></div></td>
+                </tr>
+                <tr class="score-row">
+                  <td class="text-secondary">OI Buildup</td>
+                  <td id="score-num-oi_buildup" class="fw-semibold text-end">—</td>
+                  <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-oi_buildup" class="score-bar" style="width:0%"></div></div></td>
+                </tr>
+                <tr class="score-row">
+                  <td class="text-secondary">PCR Trend</td>
+                  <td id="score-num-pcr_trend" class="fw-semibold text-end">—</td>
+                  <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-pcr_trend" class="score-bar" style="width:0%"></div></div></td>
+                </tr>
+                <tr class="score-row">
+                  <td class="text-secondary">IV Direction</td>
+                  <td id="score-num-iv_direction" class="fw-semibold text-end">—</td>
+                  <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-iv_direction" class="score-bar" style="width:0%"></div></div></td>
+                </tr>
+                <tr class="score-row">
+                  <td class="text-secondary">Candle Structure</td>
+                  <td id="score-num-candle_structure" class="fw-semibold text-end">—</td>
+                  <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-candle_structure" class="score-bar" style="width:0%"></div></div></td>
+                </tr>
+                <tr class="score-row">
+                  <td class="text-secondary">Volume Ratio</td>
+                  <td id="score-num-volume_ratio" class="fw-semibold text-end">—</td>
+                  <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-volume_ratio" class="score-bar" style="width:0%"></div></div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /at-left -->
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       RIGHT 20% — Live Trade Panel
+       (Compact version of /live; live.js handles all SocketIO state updates)
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="at-right">
+
+    {% if trade and trade.security_id %}
+
+    <!-- Symbol header ────────────────────────────────────────────────────── -->
+    <div class="mb-2 pb-2 border-bottom border-secondary">
+      <div class="d-flex align-items-start justify-content-between gap-1">
+        <div>
+          <div class="lp-title">📡 {{ trade.trading_symbol }}</div>
+          <div class="lp-meta">
+            ID: <code>{{ trade.security_id }}</code><br>
+            Lots: <strong>{{ trade.lots }}</strong> &nbsp;|&nbsp; Qty: <strong>{{ trade.quantity }}</strong>
+          </div>
+        </div>
+        {% if trade.state not in ('active', 'ordering', 'exiting', 'exiting_guard') %}
+        <form method="post" action="/activetrade/cancel" class="flex-shrink-0">
+          <button type="submit" class="btn btn-outline-secondary btn-sm" style="font-size:0.68rem; padding:2px 7px;"
+                  title="Cancel watch and reset state">✕ End</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Feed status ──────────────────────────────────────────────────────── -->
+    <div id="feed-status" class="mb-2">
+      <span class="badge bg-warning text-dark" style="font-size:0.68rem;">Connecting…</span>
+    </div>
+
+    <!-- State banner ─────────────────────────────────────────────────────── -->
+    <div id="state-banner" class="alert alert-info lp-banner" role="alert">
+      <span id="state-text">Watching — waiting for entry zone…</span>
+    </div>
+
+    <!-- Live metrics 2×2 ─────────────────────────────────────────────────── -->
+    <div class="row g-1 mb-2">
+      <div class="col-6">
+        <div class="lp-card">
+          <div class="lp-label">LTP</div>
+          <div class="lp-value" id="ltp-val">—</div>
+        </div>
+      </div>
+      <div class="col-6">
+        <div class="lp-card">
+          <div class="lp-label">Entry Trigger</div>
+          <div class="lp-value text-info">₹{{ trade.entry }}</div>
+        </div>
+      </div>
+      <div class="col-6">
+        <div class="lp-card">
+          <div class="lp-label">Stop Loss</div>
+          <div class="lp-value text-danger">₹{{ trade.sl if trade.sl else '—' }}</div>
+        </div>
+      </div>
+      <div class="col-6">
+        <div class="lp-card">
+          <div class="lp-label">Target</div>
+          <div class="lp-value text-success">
+            {% if trade.targets %}₹{{ trade.targets[0] }}{% else %}—{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Buy zone ─────────────────────────────────────────────────────────── -->
+    {% if trade.targets %}
+    {% set buy_mid = (trade.entry + trade.targets[0]) / 2 %}
+    <div class="lp-card">
+      <div class="lp-label">Buy Zone &lt;</div>
+      <div class="lp-value text-info">₹{{ "%.2f" | format(buy_mid) }}</div>
+    </div>
+    {% endif %}
+
+    <!-- Active section (hidden until position open) ──────────────────────── -->
+    <div id="active-section" class="d-none mt-2">
+      <hr class="border-secondary my-2">
+      <div class="row g-1 mb-2">
+        <div class="col-6">
+          <div class="lp-card">
+            <div class="lp-label">Buy Price</div>
+            <div class="lp-value" id="buy-price-val">—</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="lp-card">
+            <div class="lp-label">P&amp;L</div>
+            <div class="lp-value" id="pnl-val">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="lp-card mb-2" style="font-size:0.7rem;">
+        <div class="lp-label">Order ID</div>
+        <div id="order-id-val" class="fw-semibold text-truncate" style="max-width:100%;">—</div>
+      </div>
+
+      <!-- Progress bar ───────────────────────────────────────────────────── -->
+      <div class="mb-2" id="progress-wrap">
+        <div class="d-flex justify-content-between mb-1" style="font-size:0.62rem; color:#adb5bd;">
+          <span>Entry ₹{{ trade.entry }}</span>
+          {% if trade.targets %}<span>T1 ₹{{ trade.targets[0] }}</span>{% endif %}
+        </div>
+        <div class="progress" style="height:6px;">
+          <div class="progress-bar bg-success" id="progress-bar" role="progressbar" style="width:0%"></div>
+        </div>
+      </div>
+
+      <!-- Manual exit ────────────────────────────────────────────────────── -->
+      <form method="post" action="/activetrade/exit" id="exit-form">
+        <input type="hidden" name="ltp" id="exit-ltp-input" value="0">
+        <button type="submit" class="btn btn-danger w-100 btn-sm">🚪 Exit Position</button>
+      </form>
+    </div>
+
+    {% else %}
+
+    <!-- No-trade state ───────────────────────────────────────────────────── -->
+    <div class="text-center py-3">
+      <div class="text-secondary mb-1" style="font-size:1.5rem;">📭</div>
+      <div class="text-secondary mb-3" style="font-size:0.82rem; line-height:1.4;">
+        No active trade.<br>Start one from below.
+      </div>
+      <a href="/tips"    class="btn btn-sm btn-outline-primary   mb-2 w-100">📡 Browse Tips</a>
+      <a href="/scanner" class="btn btn-sm btn-outline-info      mb-2 w-100">🔍 Scanner</a>
+      <a href="/custom"  class="btn btn-sm btn-outline-secondary      w-100">🎯 Custom Trade</a>
+    </div>
+
+    {% endif %}
+
+  </div><!-- /at-right -->
+
+</div><!-- /at-split -->
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script src="{{ url_for('static', filename='js/live.js') }}"></script>
+{% if trade and trade.security_id %}
+<script>
+  const SECURITY_ID = "{{ trade.security_id }}";
+  const ENTRY       = {{ trade.entry }};
+  const SL          = {{ trade.sl }};
+  const TARGET1     = {{ trade.targets[0] if trade.targets else 0 }};
+  const QUANTITY    = {{ trade.quantity }};
+  // afterTradeUrl: null  → stay on this page after trade closes; JS will clear session
+  initLivePage(SECURITY_ID, ENTRY, SL, TARGET1, QUANTITY, { afterTradeUrl: null });
+</script>
+{% endif %}
+{% endblock %}

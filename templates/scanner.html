@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Scanner — OpenMTOps{% endblock %}
+
+{% block head %}
+<style>
+  .sig-card   { border-radius: 8px; padding: 12px 16px; border: 1px solid rgba(255,255,255,.12); }
+  .sig-badge  { font-size: 1rem; letter-spacing: .02em; }
+  .sig-levels { font-size: 0.85rem; }
+  .tip-row:hover { background: rgba(255,255,255,.05); cursor: pointer; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="fw-bold mb-0">🔍 Scanner</h4>
+  <div class="d-flex align-items-center gap-2">
+    <span class="text-secondary small">Signal updates every 10s</span>
+    <a href="/scanner" class="btn btn-sm btn-outline-secondary">↺ Refresh Tips</a>
+  </div>
+</div>
+
+<!-- ── Live Strategy Signals ──────────────────────────────────────────────── -->
+<div class="mb-4">
+  <h6 class="text-secondary fw-semibold mb-2 text-uppercase" style="letter-spacing:.06em; font-size:0.75rem;">
+    Live Strategy Signals
+  </h6>
+  <div class="row g-3" id="signal-cards-row">
+    {% for instr in instruments %}
+    <div class="col-md-6">
+      <div class="sig-card" id="sig-card-{{ instr }}">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="fw-bold">{{ instr }}</span>
+          <span class="badge bg-secondary sig-badge" id="sig-badge-{{ instr }}">Loading…</span>
+          <small class="text-secondary ms-auto" id="sig-spot-{{ instr }}"></small>
+        </div>
+        <div id="sig-levels-{{ instr }}" class="sig-levels d-none text-secondary">
+          <span class="text-secondary">Entry</span>
+          <span class="fw-semibold ms-1" id="sig-entry-{{ instr }}"></span>
+          <span class="ms-3 text-success">Target</span>
+          <span class="fw-semibold ms-1 text-success" id="sig-target-{{ instr }}"></span>
+          <span class="ms-3 text-danger">SL</span>
+          <span class="fw-semibold ms-1 text-danger" id="sig-sl-{{ instr }}"></span>
+        </div>
+        <div id="sig-reason-{{ instr }}" class="text-secondary mt-1" style="font-size:0.78rem;"></div>
+        <div class="mt-2" id="sig-action-{{ instr }}">
+          <!-- Execute button injected by JS when BUY signal is present -->
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<hr class="border-secondary">
+
+<!-- ── Recent Tips ────────────────────────────────────────────────────────── -->
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <h6 class="text-secondary fw-semibold mb-0 text-uppercase" style="letter-spacing:.06em; font-size:0.75rem;">
+    Recent Telegram Tips
+    <span class="badge bg-secondary ms-2">{{ tips|length }}</span>
+  </h6>
+  <div class="d-flex gap-2 align-items-center">
+    <span class="text-secondary small">Show:</span>
+    {% for n in [20, 50, 100] %}
+      <a href="/scanner?limit={{ n }}"
+         class="btn btn-sm {{ 'btn-secondary' if n == limit else 'btn-outline-secondary' }}">{{ n }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if tips %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.85rem;">
+    <thead class="text-secondary">
+      <tr>
+        <th>Date</th>
+        <th>Symbol</th>
+        <th>Strike</th>
+        <th>Type</th>
+        <th>Entry</th>
+        <th>SL</th>
+        <th>Target(s)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tip in tips %}
+      <tr class="tip-row">
+        <td class="text-secondary">{{ tip.date[:10] if tip.date else '—' }}</td>
+        <td class="fw-semibold">{{ tip.symbol }}</td>
+        <td>{{ tip.strike }}</td>
+        <td>
+          {% if tip.type == 'CE' %}
+            <span class="badge bg-success">CE</span>
+          {% elif tip.type == 'PE' %}
+            <span class="badge bg-danger">PE</span>
+          {% else %}
+            <span class="badge bg-secondary">{{ tip.type }}</span>
+          {% endif %}
+        </td>
+        <td class="text-info">{{ tip.entry }}</td>
+        <td class="text-danger">{{ tip.sl }}</td>
+        <td class="text-success">
+          {% if tip.targets %}
+            {{ tip.targets | join(', ') }}
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          <!-- Inline form: POST to /scanner/execute → /activetrade -->
+          <form method="post" action="/scanner/execute" class="d-inline">
+            <input type="hidden" name="symbol"      value="{{ tip.symbol }}">
+            <input type="hidden" name="strike"      value="{{ tip.strike }}">
+            <input type="hidden" name="option_type" value="{{ tip.type }}">
+            <input type="hidden" name="entry"       value="{{ tip.entry }}">
+            <input type="hidden" name="sl"          value="{{ tip.sl }}">
+            <input type="hidden" name="targets"     value="{{ tip.targets | join(',') if tip.targets else '' }}">
+            <button type="submit" class="btn btn-sm btn-primary px-3">Execute →</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-center text-secondary py-5">
+  <div style="font-size:2rem;">📭</div>
+  <div class="mt-2">No tips found. Try increasing the limit or refreshing.</div>
+  <a href="/scanner" class="btn btn-sm btn-outline-secondary mt-3">↺ Refresh</a>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+
+  const INSTRUMENTS = {{ instruments | tojson }};
+
+  // Colour map for signal card border
+  const BORDER = {
+    BUY:      "border-success",
+    NO_TRADE: "border-danger",
+    WAIT:     "border-secondary",
+  };
+
+  function applySignal(instr, data) {
+    const sig    = data.signal ?? {};
+    const action = sig.action ?? "WAIT";
+    const card   = document.getElementById(`sig-card-${instr}`);
+    const badge  = document.getElementById(`sig-badge-${instr}`);
+    const levels = document.getElementById(`sig-levels-${instr}`);
+    const reason = document.getElementById(`sig-reason-${instr}`);
+    const actEl  = document.getElementById(`sig-action-${instr}`);
+    const spot   = document.getElementById(`sig-spot-${instr}`);
+
+    if (!card) return;
+
+    // Border
+    card.classList.remove("border-success", "border-danger", "border-secondary", "border-warning");
+    card.classList.add(BORDER[action] ?? "border-secondary");
+
+    // Spot price
+    if (spot) spot.textContent = data.spot != null ? `Spot ${data.spot.toFixed(2)}` : "";
+
+    // Badge
+    if (badge) {
+      badge.classList.remove("bg-success", "bg-danger", "bg-secondary", "bg-warning");
+      if (action === "BUY") {
+        badge.classList.add("bg-success");
+        badge.textContent = sig.direction === "CE" ? "📈 BUY CE" : "📉 BUY PE";
+      } else if (action === "NO_TRADE") {
+        badge.classList.add("bg-danger");
+        badge.textContent = "🚫 NO TRADE";
+      } else {
+        badge.classList.add("bg-secondary");
+        badge.textContent = "⏳ WAIT";
+      }
+    }
+
+    // Levels (BUY only)
+    if (action === "BUY" && sig.entry != null) {
+      if (levels) {
+        levels.classList.remove("d-none");
+        document.getElementById(`sig-entry-${instr}`).textContent  = `₹${sig.entry}`;
+        document.getElementById(`sig-target-${instr}`).textContent = `₹${sig.target}`;
+        document.getElementById(`sig-sl-${instr}`).textContent     = `₹${sig.sl}`;
+      }
+      // "Set Up Trade" button — links to /custom for the user to pick a strike
+      if (actEl) {
+        actEl.innerHTML = `<a href="/custom" class="btn btn-sm btn-success mt-1">Set Up Trade →</a>
+          <span class="text-secondary ms-2" style="font-size:0.75rem;">
+            Entry ₹${sig.entry} · SL ₹${sig.sl} · T ₹${sig.target}
+          </span>`;
+      }
+    } else {
+      if (levels) levels.classList.add("d-none");
+      if (actEl)  actEl.innerHTML = "";
+    }
+
+    // Reason
+    if (reason) reason.textContent = sig.reason ?? "";
+  }
+
+  function pollSignals() {
+    INSTRUMENTS.forEach(instr => {
+      fetch(`/api/dashboard/snapshot?instrument=${instr}`)
+        .then(r => r.json())
+        .then(d => { if (d.ready) applySignal(instr, d); })
+        .catch(() => {});
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    pollSignals();
+    setInterval(pollSignals, 10000);
+  });
+})();
+</script>
+{% endblock %}

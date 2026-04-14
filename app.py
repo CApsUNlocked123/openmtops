@@ -18,18 +18,20 @@ if os.getenv("TESTING") == "1":
 from flask import Flask, redirect, session, request
 from extensions import socketio
 
-import routes.home       as home_mod
-import routes.live       as live_mod
-import routes.tips       as tips_mod
-import routes.custom     as custom_mod
-import routes.analyzer   as analyzer_mod
-import routes.history    as history_mod
-import routes.settings   as settings_mod
+import routes.home        as home_mod
+import routes.live        as live_mod
+import routes.tips        as tips_mod
+import routes.custom      as custom_mod
+import routes.analyzer    as analyzer_mod
+import routes.history     as history_mod
+import routes.settings    as settings_mod
 import routes.oi_tracker  as oi_tracker_mod
 import routes.dashboard   as dashboard_mod
 import routes.auth        as auth_mod
 import routes.notifications as notif_mod
 import routes.setup       as setup_mod
+import routes.activetrade as activetrade_mod
+import routes.scanner     as scanner_mod
 import candle_service
 import notification_service
 
@@ -59,6 +61,8 @@ def create_app() -> Flask:
     app.register_blueprint(oi_tracker_mod.bp)
     app.register_blueprint(dashboard_mod.bp)
     app.register_blueprint(notif_mod.bp)
+    app.register_blueprint(activetrade_mod.bp)
+    app.register_blueprint(scanner_mod.bp)
 
     # ── Register SocketIO events from route modules ────────────────────────────
     live_mod.register_socketio(socketio)

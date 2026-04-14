@@ -1,0 +1,102 @@
+{#
+  RegimeMomentum widget fragment.
+  Rendered server-side by /api/scan/widget/regime_momentum and also used
+  as the initial skeleton that regime_momentum.js fills client-side.
+
+  Context variables (all optional — widget JS fills them via fetch):
+    data.action, data.direction, data.instrument,
+    data.regime, data.phase, data.health_score, data.lin_score,
+    data.entry, data.target, data.sl, data.reason,
+    data.counter_reasons, data.generated_at, data.error
+#}
+{% set d = data | default({}) %}
+{% set action = d.get("action", "WAIT") if d else "WAIT" %}
+
+<div class="widget-header">
+  <span class="widget-title">Regime Momentum</span>
+  <span class="widget-ts" id="rm-ts">{{ d.get("generated_at", "") }}</span>
+</div>
+
+{% if d.get("error") %}
+  <div class="alert alert-warning" style="font-size:0.80rem;padding:8px 12px;">
+    Could not fetch signal: {{ d.error }}
+  </div>
+{% else %}
+
+  <!-- Action badge -->
+  <div class="mb-3">
+    {% if action == "BUY" %}
+      <span class="badge-buy" id="rm-action">
+        BUY {{ d.get("direction", "") }}
+      </span>
+    {% elif action == "NO_TRADE" %}
+      <span class="badge-sell" id="rm-action">NO TRADE</span>
+    {% else %}
+      <span class="badge-wait" id="rm-action">WAIT</span>
+    {% endif %}
+    &nbsp;
+    <span style="font-size:0.80rem;color:var(--text-secondary);" id="rm-instrument">
+      {{ d.get("instrument", "") }}
+    </span>
+  </div>
+
+  <!-- Key indicators row -->
+  <div class="row g-2 mb-3">
+    <div class="col-6">
+      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Regime</div>
+      <div style="font-size:0.88rem;font-weight:600;" id="rm-regime">{{ d.get("regime", "—") }}</div>
+    </div>
+    <div class="col-6">
+      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Phase</div>
+      <div style="font-size:0.88rem;font-weight:600;" id="rm-phase">{{ d.get("phase", "—") }}</div>
+    </div>
+    <div class="col-6">
+      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Health</div>
+      <div style="font-size:0.88rem;font-weight:600;" id="rm-health">{{ d.get("health_score", 0) }}</div>
+    </div>
+    <div class="col-6">
+      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Linear Score</div>
+      <div style="font-size:0.88rem;font-weight:600;" id="rm-lin">{{ d.get("lin_score", 0) }}</div>
+    </div>
+  </div>
+
+  <!-- BUY levels -->
+  {% if action == "BUY" %}
+  <div class="row g-2 mb-3" id="rm-levels">
+    <div class="col-4">
+      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Entry</div>
+      <div style="font-size:0.92rem;font-weight:700;color:var(--text-primary);" id="rm-entry">
+        {{ "%.2f"|format(d.get("entry",0)|float) if d.get("entry") else "—" }}
+      </div>
+    </div>
+    <div class="col-4">
+      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Target</div>
+      <div style="font-size:0.92rem;font-weight:700;color:var(--green);" id="rm-target">
+        {{ "%.2f"|format(d.get("target",0)|float) if d.get("target") else "—" }}
+      </div>
+    </div>
+    <div class="col-4">
+      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">SL</div>
+      <div style="font-size:0.92rem;font-weight:700;color:var(--red);" id="rm-sl">
+        {{ "%.2f"|format(d.get("sl",0)|float) if d.get("sl") else "—" }}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Reason text -->
+  <div style="font-size:0.78rem;color:var(--text-secondary);line-height:1.4;" id="rm-reason">
+    {{ d.get("reason", "") }}
+  </div>
+
+  <!-- Counter reasons (NO_TRADE only) -->
+  {% if d.get("counter_reasons") %}
+  <ul style="font-size:0.75rem;color:var(--text-secondary);padding-left:1.1rem;margin-top:6px;margin-bottom:0;"
+      id="rm-counters">
+    {% for r in d.counter_reasons %}
+    <li>{{ r }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+{% endif %}

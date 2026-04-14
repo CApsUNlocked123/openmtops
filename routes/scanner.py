@@ -14,6 +14,12 @@ bp = Blueprint("scanner", __name__)
 
 
 @bp.route("/scanner")
+def scanner_redirect():
+    """Legacy URL — permanent redirect to new primary /scan."""
+    return redirect("/scan", 301)
+
+
+@bp.route("/scanner/page")
 def scanner_page():
     limit = int(request.args.get("limit", 20))
     try:
@@ -42,7 +48,7 @@ def scanner_execute():
     sec = lookup_security(symbol, strike, option_type)
     if not sec:
         flash("Security not found in instrument master.", "warning")
-        return redirect("/scanner")
+        return redirect("/scan")
 
     targets = [t.strip() for t in targets_raw.split(",") if t.strip()]
 
@@ -55,5 +61,6 @@ def scanner_execute():
         "entry":            entry,
         "sl":               sl,
         "targets":          targets,
+        "mode":             "single",
     }
-    return redirect("/activetrade")
+    return redirect("/trade")

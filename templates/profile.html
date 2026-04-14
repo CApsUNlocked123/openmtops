@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+{% block title %}Profile — OpenMTOps{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2 class="fw-bold mb-1">Profile</h2>
+    <p class="stat-label mb-0">Settings &amp; trade history</p>
+  </div>
+  <div class="d-flex gap-2">
+    <form method="post" action="/settings/restarting">
+      <button type="submit" class="btn btn-outline-warning btn-sm">↺ Restart</button>
+    </form>
+  </div>
+</div>
+
+<!-- Tab nav -->
+<ul class="nav nav-tabs mb-4" id="profileTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {% if active_tab != 'history' %}active{% endif %}"
+            id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings-pane"
+            type="button" role="tab">Settings</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {% if active_tab == 'history' %}active{% endif %}"
+            id="history-tab" data-bs-toggle="tab" data-bs-target="#history-pane"
+            type="button" role="tab">Trade History</button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  <!-- ── Settings tab ──────────────────────────────────────────────────── -->
+  <div class="tab-pane fade {% if active_tab != 'history' %}show active{% endif %}"
+       id="settings-pane" role="tabpanel">
+
+    <div class="row g-4">
+
+      <!-- Telegram Auth -->
+      <div class="col-md-6">
+        <div class="card border-secondary h-100">
+          <div class="card-header fw-semibold">Telegram Authentication</div>
+          <div class="card-body">
+            {% if tg_authorized %}
+              <div class="alert alert-success">Telegram is authenticated</div>
+              <form method="post" action="/settings/tg/reauth">
+                <button type="submit" class="btn btn-outline-warning btn-sm">Re-authenticate</button>
+              </form>
+            {% elif tg_step == 'code' %}
+              <p class="text-secondary small">Enter the code sent to your phone.</p>
+              <form method="post" action="/settings/tg/code">
+                <div class="mb-3">
+                  <label class="form-label">Verification Code</label>
+                  <input type="text" name="code" class="form-control" placeholder="12345" autofocus required>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Verify Code</button>
+              </form>
+            {% elif tg_step == 'password' %}
+              <p class="text-secondary small">Enter your 2-FA cloud password.</p>
+              <form method="post" action="/settings/tg/2fa">
+                <div class="mb-3">
+                  <label class="form-label">2-FA Password</label>
+                  <input type="password" name="password" class="form-control" autofocus required>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Submit Password</button>
+              </form>
+            {% else %}
+              <p class="text-secondary small">Not authenticated. Enter your phone number to receive an OTP.</p>
+              <form method="post" action="/settings/tg/phone">
+                <div class="mb-3">
+                  <label class="form-label">Phone Number (with country code)</label>
+                  <input type="tel" name="phone" class="form-control" placeholder="+919876543210" autofocus required>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Send Code</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Dhan API -->
+      <div class="col-md-6">
+        <div class="card border-secondary h-100">
+          <div class="card-header fw-semibold">Dhan API Credentials</div>
+          <div class="card-body">
+            <p class="small text-secondary mb-3">
+              Client ID: <code>{{ client_id }}</code><br>
+              Token: <code>{{ masked_token }}</code>
+            </p>
+            <form method="post" action="/settings/dhan/test" class="mb-3">
+              <button type="submit" class="btn btn-outline-secondary btn-sm">Test Connection</button>
+            </form>
+            <form method="post" action="/settings/dhan">
+              <div class="mb-3">
+                <label class="form-label">Client ID</label>
+                <input type="text" name="client_id" class="form-control" value="{{ client_id }}" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Access Token</label>
+                <textarea name="access_token" class="form-control font-monospace" rows="3"
+                          placeholder="Paste new JWT token here" required></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary w-100">Save Credentials</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- Telegram API credentials -->
+      <div class="col-md-6">
+        <div class="card border-secondary">
+          <div class="card-header fw-semibold">Telegram API Credentials</div>
+          <div class="card-body">
+            <p class="small text-secondary mb-3">
+              API ID and Hash from <a href="https://my.telegram.org/apps" target="_blank" rel="noopener">my.telegram.org</a>.
+            </p>
+            <form method="post" action="/settings/telegram/api">
+              <div class="mb-3">
+                <label class="form-label">API ID</label>
+                <input type="number" name="api_id" class="form-control"
+                       value="{{ tg_api_id or '' }}" placeholder="e.g. 12345678">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">API Hash</label>
+                <input type="text" name="api_hash" class="form-control font-monospace"
+                       value="{{ tg_api_hash or '' }}" placeholder="32-character hex">
+              </div>
+              <button type="submit" class="btn btn-outline-primary w-100">Update API Credentials</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- Telegram Channel -->
+      <div class="col-md-6">
+        <div class="card border-secondary">
+          <div class="card-header fw-semibold">Telegram Channel</div>
+          <div class="card-body">
+            <p class="small text-secondary mb-3">
+              The channel OpenMTOps monitors for trading tips.
+            </p>
+            <form method="post" action="/settings/telegram/channel">
+              <div class="mb-3">
+                <label class="form-label">Channel ID</label>
+                <input type="text" name="channel_id" class="form-control font-monospace"
+                       value="{{ current_channel_id or '' }}" placeholder="-1001234567890">
+              </div>
+              <button type="submit" class="btn btn-outline-primary w-100">Update Channel</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- Access PIN -->
+      <div class="col-md-6">
+        <div class="card border-secondary">
+          <div class="card-header fw-semibold">Access PIN</div>
+          <div class="card-body">
+            <p class="small text-secondary mb-3">
+              If set, all browser sessions require this PIN.
+              Leave blank to disable.
+              {% if pin_set %}<br><span class="text-green">PIN is currently enabled.</span>{% endif %}
+            </p>
+            <form method="post" action="/settings/pin">
+              <div class="mb-3">
+                <label class="form-label">New PIN (4–8 digits)</label>
+                <input type="password" name="pin" class="form-control"
+                       placeholder="Leave blank to disable" inputmode="numeric"
+                       maxlength="8" autocomplete="new-password">
+              </div>
+              <button type="submit" class="btn btn-outline-primary w-100">Update PIN</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /settings-pane -->
+
+  <!-- ── History tab ───────────────────────────────────────────────────── -->
+  <div class="tab-pane fade {% if active_tab == 'history' %}show active{% endif %}"
+       id="history-pane" role="tabpanel">
+
+    <div class="row g-3 mb-4">
+      <div class="col-6 col-md-3">
+        <div class="stat-card">
+          <div class="stat-label">Total Trades</div>
+          <div class="stat-number">{{ summary.total }}</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card">
+          <div class="stat-label">All-time P&amp;L</div>
+          <div class="stat-number {% if summary.pnl >= 0 %}text-green{% else %}text-red{% endif %}">
+            ₹{{ "%.2f"|format(summary.pnl) }}
+          </div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card">
+          <div class="stat-label">Win Rate</div>
+          <div class="stat-number">{{ summary.win_rate }}%</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card">
+          <div class="stat-label">Wins / Losses</div>
+          <div class="stat-number">
+            <span class="text-green">{{ summary.wins }}</span>
+            <span class="text-label"> / </span>
+            <span class="text-red">{{ summary.losses }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if trades %}
+    <div class="card">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Date</th><th>Symbol</th><th>Exit</th>
+              <th class="text-end">Entry</th><th class="text-end">Buy</th>
+              <th class="text-end">Exit</th><th class="text-end">Lots</th>
+              <th class="text-end">P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in trades %}
+            <tr data-bs-toggle="collapse" data-bs-target="#detail-{{ loop.index }}"
+                style="cursor:pointer;">
+              <td class="text-secondary small">{{ t.exit_time[:16] if t.exit_time else '—' }}</td>
+              <td class="text-primary fw-semibold">{{ t.trading_symbol or '—' }}</td>
+              <td>
+                {% if t.exit_reason == 'TARGET' %}
+                  <span class="badge-buy">TARGET</span>
+                {% elif t.exit_reason == 'SL' %}
+                  <span class="badge-sell">SL</span>
+                {% else %}
+                  <span class="badge-neutral">{{ t.exit_reason or '—' }}</span>
+                {% endif %}
+              </td>
+              <td class="text-end">{{ "%.2f"|format(t.entry_trigger|float) if t.entry_trigger else '—' }}</td>
+              <td class="text-end">{{ "%.2f"|format(t.buy_price|float) if t.buy_price else '—' }}</td>
+              <td class="text-end">{{ "%.2f"|format(t.exit_price|float) if t.exit_price else '—' }}</td>
+              <td class="text-end">{{ t.lots or '—' }}</td>
+              <td class="text-end fw-bold {% if t.pnl >= 0 %}text-green{% else %}text-red{% endif %}">
+                ₹{{ "%.2f"|format(t.pnl|float) }}
+              </td>
+            </tr>
+            <tr class="collapse" id="detail-{{ loop.index }}">
+              <td colspan="8">
+                <pre class="rounded p-3 small mb-0"
+                     style="background:var(--bg-card-raised);font-size:0.78em;">{{ t | tojson(indent=2) }}</pre>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+      <div class="alert alert-secondary">No completed trades yet.</div>
+    {% endif %}
+
+  </div><!-- /history-pane -->
+
+</div><!-- /tab-content -->
+{% endblock %}

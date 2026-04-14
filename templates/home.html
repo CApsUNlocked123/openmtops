@@ -1,130 +1,275 @@
 {% extends "base.html" %}
-{% block title %}Home — OpenMTOps{% endblock %}
+{% block title %}Dashboard — OpenMTOps{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<div class="d-flex justify-content-between align-items-start mb-4">
   <div>
-    <h1 class="fw-bold mb-1">OpenMTOps</h1>
-    <p class="text-secondary mb-0">Automated F&amp;O options trading assistant</p>
+    <h2 class="fw-bold mb-1">Dashboard</h2>
+    <p class="stat-label mb-0">F&amp;O live operations</p>
   </div>
-  <div class="d-flex align-items-center gap-3">
-    {% if dhan.ok %}
-      <span class="badge fs-6" style="background:#fff;border:1.5px solid #00e676;color:#00a152;border-radius:999px;padding:.45em 1.1em;font-weight:600;box-shadow:0 0 10px rgba(0,230,118,0.18);">
-        <span class="live-dot"></span>Dhan &middot; {{ dhan.count }} open
-      </span>
-    {% else %}
-      <span class="badge fs-6" style="background:#fff;border:1.5px solid var(--orange-500);color:var(--orange-700);border-radius:999px;padding:.45em 1.1em;font-weight:600;">
-        ⚠ Dhan offline
-      </span>
-    {% endif %}
+  <div class="d-flex align-items-center gap-2">
+    <span id="dhan-badge"
+      style="display:inline-flex;align-items:center;gap:6px;
+             background:{% if dhan.ok %}var(--green-bg){% else %}var(--red-bg){% endif %};
+             border:1px solid {% if dhan.ok %}var(--green-border){% else %}var(--red-border){% endif %};
+             border-radius:var(--radius-pill);padding:4px 12px;
+             font-size:0.80rem;font-weight:600;
+             color:{% if dhan.ok %}var(--green){% else %}var(--red){% endif %};">
+      {% if dhan.ok %}<span class="live-dot"></span>Dhan &middot; <span id="open-count">{{ dhan.count }}</span> open
+      {% else %}Dhan offline{% endif %}
+    </span>
     <form method="get" action="/settings/restarting">
-      <button type="submit" class="btn btn-outline-warning btn-sm">↺ Restart</button>
+      <button type="submit" class="btn btn-outline-secondary btn-sm">↺ Restart</button>
     </form>
   </div>
 </div>
 
-<hr style="border-color:rgba(142,36,170,0.18);">
-
-<!-- ── Entry Points ──────────────────────────────────────────────────────── -->
-<div class="mb-2 mt-3">
-  <p class="text-secondary small text-uppercase fw-semibold mb-3" style="letter-spacing:.07em;">Start a Trade</p>
+<!-- ── Index price strip ────────────────────────────────────────────────── -->
+<div class="row g-2 mb-4" id="index-strip">
+  {%- for name in ["NIFTY","BANKNIFTY","FINNIFTY","MIDCPNIFTY"] %}
+  <div class="col-6 col-md-3">
+    <div class="stat-card" style="padding:10px 14px;">
+      <div class="stat-label">{{ name }}</div>
+      <div class="stat-number" id="idx-{{ name }}" style="font-size:1.25rem;">—</div>
+    </div>
+  </div>
+  {% endfor %}
 </div>
 
-<div class="row g-4 mb-2">
+<!-- ── P&L stat row ─────────────────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
 
-  <div class="col-md-4">
-    <div class="card h-100 border-primary" style="border-width:1.5px!important;">
-      <div class="card-body d-flex flex-column">
-        <div class="card-icon mb-2">📡</div>
-        <h5 class="card-title fw-bold">Browse Tips</h5>
-        <p class="card-text text-secondary flex-grow-1">
-          Browse Telegram F&amp;O signals and execute into the ActiveTrade screen with one click.
-        </p>
-        <a href="/tips" class="btn btn-primary mt-2">Open Tips →</a>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-label">Today P&amp;L</div>
+      <div class="stat-number" id="today-pnl"
+           style="color:{% if summary.today_pnl >= 0 %}var(--green){% else %}var(--red){% endif %}">
+        {% if summary.today_pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(summary.today_pnl) }}
       </div>
+      <div class="stat-sub" id="today-pnl-sub">realized today</div>
     </div>
   </div>
 
-  <div class="col-md-4">
-    <div class="card h-100 border-primary" style="border-width:1.5px!important;">
-      <div class="card-body d-flex flex-column">
-        <div class="card-icon mb-2">🎯</div>
-        <h5 class="card-title fw-bold">Custom Trade</h5>
-        <p class="card-text text-secondary flex-grow-1">
-          Enter instrument, strike, entry, SL and targets manually and go live instantly.
-        </p>
-        <a href="/custom" class="btn btn-primary mt-2">Open Custom →</a>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-label">All-time P&amp;L</div>
+      <div class="stat-number" id="total-pnl"
+           style="color:{% if summary.pnl >= 0 %}var(--green){% else %}var(--red){% endif %}">
+        {% if summary.pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(summary.pnl) }}
       </div>
+      <div class="stat-sub">{{ summary.total }} trades</div>
     </div>
   </div>
 
-  <div class="col-md-4">
-    <div class="card h-100 border-primary" style="border-width:1.5px!important;">
-      <div class="card-body d-flex flex-column">
-        <div class="card-icon mb-2">🔍</div>
-        <h5 class="card-title fw-bold">Scanner</h5>
-        <p class="card-text text-secondary flex-grow-1">
-          Live strategy signals for NIFTY &amp; BANKNIFTY alongside recent tips — execute directly from the list.
-        </p>
-        <a href="/scanner" class="btn btn-primary mt-2">Open Scanner →</a>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-label">Win Rate</div>
+      <div class="stat-number" id="win-rate">{{ summary.win_rate }}%</div>
+      <div class="stat-sub" id="wins-losses">{{ summary.wins }}W / {{ summary.losses }}L</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-label">Open Positions</div>
+      <div class="stat-number" id="positions-count"
+           style="{% if dhan.count > 0 %}color:var(--blue){% endif %}">
+        {{ dhan.count }}
       </div>
+      <div class="stat-sub">{% if dhan.ok %}via Dhan{% else %}offline{% endif %}</div>
     </div>
   </div>
 
 </div>
 
-<hr style="border-color:rgba(255,255,255,0.07); margin: 1.75rem 0 1.25rem;">
+<!-- ── Active trade card ─────────────────────────────────────────────────── -->
+<div id="active-trade-card" class="mb-4 d-none">
+  <div class="section-label">Active Trade</div>
+  <div class="card" style="border-color:var(--green-border);">
+    <div class="card-body d-flex align-items-center justify-content-between gap-3 flex-wrap py-3">
+      <div>
+        <div class="stat-label mb-1">Symbol</div>
+        <div id="at-symbol" style="font-size:1.05rem;font-weight:700;"></div>
+      </div>
+      <div>
+        <div class="stat-label mb-1">State</div>
+        <div id="at-state"></div>
+      </div>
+      <div>
+        <div class="stat-label mb-1">Entry</div>
+        <div id="at-entry" style="font-weight:600;"></div>
+      </div>
+      <div>
+        <div class="stat-label mb-1">SL</div>
+        <div id="at-sl" style="color:var(--red);font-weight:600;"></div>
+      </div>
+      <a href="/trade" class="btn btn-outline-success btn-sm">Go to trade →</a>
+    </div>
+  </div>
+</div>
 
-<!-- ── Tools & History ───────────────────────────────────────────────────── -->
+<!-- ── Quick actions ─────────────────────────────────────────────────────── -->
+<div class="mb-4">
+  <div class="section-label">Quick Actions</div>
+  <div class="row g-3">
+    <div class="col-6 col-md-3">
+      <a href="/trade" class="action-card h-100">
+        <div class="action-title">📈 ActiveTrade</div>
+        <div class="action-desc">80/20 split live trade screen</div>
+        <div class="action-arrow">→</div>
+      </a>
+    </div>
+    <div class="col-6 col-md-3">
+      <a href="/scan" class="action-card h-100">
+        <div class="action-title">🔍 ActiveScan</div>
+        <div class="action-desc">Strategy widgets &amp; signals</div>
+        <div class="action-arrow">→</div>
+      </a>
+    </div>
+    <div class="col-6 col-md-3">
+      <a href="/tip" class="action-card h-100">
+        <div class="action-title">📡 ActiveTip</div>
+        <div class="action-desc">Telegram F&amp;O signals</div>
+        <div class="action-arrow">→</div>
+      </a>
+    </div>
+    <div class="col-6 col-md-3">
+      <a href="/analyzer" class="action-card h-100">
+        <div class="action-title">🔬 Analyzer</div>
+        <div class="action-desc">Option chain &amp; OI</div>
+        <div class="action-arrow">→</div>
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- ── Recent trades ─────────────────────────────────────────────────────── -->
+{% if recent_trades %}
 <div class="mb-2">
-  <p class="text-secondary small text-uppercase fw-semibold mb-3" style="letter-spacing:.07em;">Tools &amp; History</p>
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="section-label mb-0">Recent Trades</div>
+    <a href="/profile?tab=history" style="font-size:0.78rem;color:var(--text-secondary);">View all →</a>
+  </div>
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Symbol</th><th>Exit</th>
+            <th class="text-end">P&amp;L</th>
+            <th class="text-end d-none d-md-table-cell">Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in recent_trades %}
+          <tr>
+            <td class="fw-semibold">{{ t.trading_symbol or "—" }}</td>
+            <td>
+              {% if t.exit_reason == "TARGET" %}<span class="badge-buy">TARGET</span>
+              {% elif t.exit_reason == "SL" %}<span class="badge-sell">SL</span>
+              {% else %}<span class="badge-neutral">{{ t.exit_reason or "—" }}</span>
+              {% endif %}
+            </td>
+            <td class="text-end fw-bold {% if t.pnl >= 0 %}text-green{% else %}text-red{% endif %}">
+              {% if t.pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(t.pnl|float) }}
+            </td>
+            <td class="text-end text-secondary small d-none d-md-table-cell">
+              {{ t.exit_time[:16] if t.exit_time else "—" }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
+{% endif %}
 
-<div class="row g-3">
+{% endblock %}
 
-  <div class="col-md-3">
-    <div class="card h-100 border-secondary">
-      <div class="card-body d-flex flex-column">
-        <div class="card-icon mb-2" style="font-size:1.5rem;">🔬</div>
-        <h6 class="card-title fw-semibold">Option Analyzer</h6>
-        <p class="card-text text-secondary small flex-grow-1">Live option chain with OI, Greeks and change tracking.</p>
-        <a href="/analyzer" class="btn btn-outline-secondary btn-sm mt-2">Open →</a>
-      </div>
-    </div>
-  </div>
+{% block scripts %}
+<script>
+(function () {
+  'use strict';
 
-  <div class="col-md-3">
-    <div class="card h-100 border-secondary">
-      <div class="card-body d-flex flex-column">
-        <div class="card-icon mb-2" style="font-size:1.5rem;">🧠</div>
-        <h6 class="card-title fw-semibold">Strategy Dashboard</h6>
-        <p class="card-text text-secondary small flex-grow-1">Standalone regime, phase, OI walls and linear move score.</p>
-        <a href="/dashboard" class="btn btn-outline-secondary btn-sm mt-2">Open →</a>
-      </div>
-    </div>
-  </div>
+  function _pnlColor(v) {
+    return v >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+  function _fmt(v) {
+    const n = parseFloat(v);
+    return (n >= 0 ? '+' : '') + '₹' + Math.round(n).toLocaleString('en-IN');
+  }
 
-  <div class="col-md-3">
-    <div class="card h-100 border-secondary">
-      <div class="card-body d-flex flex-column">
-        <div class="card-icon mb-2" style="font-size:1.5rem;">📊</div>
-        <h6 class="card-title fw-semibold">Trade History</h6>
-        <p class="card-text text-secondary small flex-grow-1">Review completed trades, P&amp;L summary, and win rate.</p>
-        <a href="/history" class="btn btn-outline-secondary btn-sm mt-2">Open →</a>
-      </div>
-    </div>
-  </div>
+  function _apply(data) {
+    // Index prices
+    const idx = data.indices || {};
+    for (const [name, ltp] of Object.entries(idx)) {
+      const el = document.getElementById('idx-' + name);
+      if (el) el.textContent = ltp != null
+        ? parseFloat(ltp).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})
+        : '—';
+    }
 
-  <div class="col-md-3">
-    <div class="card h-100 border-secondary">
-      <div class="card-body d-flex flex-column">
-        <div class="card-icon mb-2" style="font-size:1.5rem;">⚙️</div>
-        <h6 class="card-title fw-semibold">Settings</h6>
-        <p class="card-text text-secondary small flex-grow-1">Manage Telegram auth and Dhan API credentials.</p>
-        <a href="/settings" class="btn btn-outline-secondary btn-sm mt-2">Open →</a>
-      </div>
-    </div>
-  </div>
+    // P&L summary
+    const s = data.summary || {};
+    const todayEl = document.getElementById('today-pnl');
+    if (todayEl && s.today_pnl != null) {
+      todayEl.textContent  = _fmt(s.today_pnl);
+      todayEl.style.color  = _pnlColor(s.today_pnl);
+    }
+    const totalEl = document.getElementById('total-pnl');
+    if (totalEl && s.pnl != null) {
+      totalEl.textContent = _fmt(s.pnl);
+      totalEl.style.color = _pnlColor(s.pnl);
+    }
+    const wrEl = document.getElementById('win-rate');
+    if (wrEl && s.win_rate != null) wrEl.textContent = s.win_rate + '%';
+    const wlEl = document.getElementById('wins-losses');
+    if (wlEl && s.wins != null) wlEl.textContent = s.wins + 'W / ' + s.losses + 'L';
 
-</div>
+    // Open count
+    const ocEl = document.getElementById('open-count');
+    if (ocEl && data.open_count != null) ocEl.textContent = data.open_count;
+    const pcEl = document.getElementById('positions-count');
+    if (pcEl && data.open_count != null) {
+      pcEl.textContent  = data.open_count;
+      pcEl.style.color  = data.open_count > 0 ? 'var(--blue)' : 'var(--text-primary)';
+    }
+
+    // Active trade card
+    const card = document.getElementById('active-trade-card');
+    if (card) {
+      if (data.active_trade) {
+        const at = data.active_trade;
+        const stateMap = {
+          watching: '<span class="badge-wait">WATCHING</span>',
+          ordering: '<span class="badge-wait">ORDERING</span>',
+          active:   '<span class="badge-buy">ACTIVE</span>',
+          exiting:  '<span class="badge-sell">EXITING</span>',
+        };
+        document.getElementById('at-symbol').textContent = at.symbol || '—';
+        document.getElementById('at-state').innerHTML    = stateMap[at.state] || at.state;
+        document.getElementById('at-entry').textContent  = at.entry ? '₹' + at.entry : '—';
+        document.getElementById('at-sl').textContent     = at.sl    ? '₹' + at.sl    : '—';
+        card.classList.remove('d-none');
+      } else {
+        card.classList.add('d-none');
+      }
+    }
+  }
+
+  function poll() {
+    fetch('/api/home/snapshot')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) _apply(d); })
+      .catch(() => {});
+  }
+
+  // Immediate first poll, then every 5 s
+  poll();
+  setInterval(poll, 5000);
+})();
+</script>
 {% endblock %}

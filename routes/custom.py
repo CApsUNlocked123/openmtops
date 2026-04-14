@@ -59,7 +59,7 @@ def custom_trade():
             "targets":        targets,
             "lots_override":  lots_override,
         }
-        return redirect("/live")
+        return redirect("/activetrade")
 
     import os
     prefill = {}

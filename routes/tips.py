@@ -109,4 +109,4 @@ def execute_tip():
         "sl":             sl,
         "targets":        targets,
     }
-    return redirect("/live")
+    return redirect("/activetrade")

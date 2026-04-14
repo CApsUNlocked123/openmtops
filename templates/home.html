@@ -25,70 +25,103 @@
 
 <hr style="border-color:rgba(142,36,170,0.18);">
 
-<div class="row g-4 mt-1">
+<!-- ── Entry Points ──────────────────────────────────────────────────────── -->
+<div class="mb-2 mt-3">
+  <p class="text-secondary small text-uppercase fw-semibold mb-3" style="letter-spacing:.07em;">Start a Trade</p>
+</div>
+
+<div class="row g-4 mb-2">
 
   <div class="col-md-4">
-    <div class="card h-100 border-secondary">
+    <div class="card h-100 border-primary" style="border-width:1.5px!important;">
       <div class="card-body d-flex flex-column">
         <div class="card-icon mb-2">📡</div>
-        <h5 class="card-title fw-bold">Live Tips</h5>
-        <p class="card-text text-secondary flex-grow-1">Browse Telegram F&amp;O signals and auto-execute with one click.</p>
-        <a href="/tips" class="btn btn-primary mt-2">Open &rarr;</a>
+        <h5 class="card-title fw-bold">Browse Tips</h5>
+        <p class="card-text text-secondary flex-grow-1">
+          Browse Telegram F&amp;O signals and execute into the ActiveTrade screen with one click.
+        </p>
+        <a href="/tips" class="btn btn-primary mt-2">Open Tips →</a>
       </div>
     </div>
   </div>
 
   <div class="col-md-4">
-    <div class="card h-100 border-secondary">
+    <div class="card h-100 border-primary" style="border-width:1.5px!important;">
       <div class="card-body d-flex flex-column">
         <div class="card-icon mb-2">🎯</div>
         <h5 class="card-title fw-bold">Custom Trade</h5>
-        <p class="card-text text-secondary flex-grow-1">Enter instrument, strike, entry, SL and targets manually.</p>
-        <a href="/custom" class="btn btn-primary mt-2">Open &rarr;</a>
+        <p class="card-text text-secondary flex-grow-1">
+          Enter instrument, strike, entry, SL and targets manually and go live instantly.
+        </p>
+        <a href="/custom" class="btn btn-primary mt-2">Open Custom →</a>
       </div>
     </div>
   </div>
 
   <div class="col-md-4">
-    <div class="card h-100 border-secondary">
+    <div class="card h-100 border-primary" style="border-width:1.5px!important;">
       <div class="card-body d-flex flex-column">
-        <div class="card-icon mb-2">🔬</div>
-        <h5 class="card-title fw-bold">Option Analyzer</h5>
-        <p class="card-text text-secondary flex-grow-1">Live option chain with OI, Greeks and change tracking.</p>
-        <a href="/analyzer" class="btn btn-primary mt-2">Open &rarr;</a>
+        <div class="card-icon mb-2">🔍</div>
+        <h5 class="card-title fw-bold">Scanner</h5>
+        <p class="card-text text-secondary flex-grow-1">
+          Live strategy signals for NIFTY &amp; BANKNIFTY alongside recent tips — execute directly from the list.
+        </p>
+        <a href="/scanner" class="btn btn-primary mt-2">Open Scanner →</a>
       </div>
     </div>
   </div>
 
-  <div class="col-md-4">
+</div>
+
+<hr style="border-color:rgba(255,255,255,0.07); margin: 1.75rem 0 1.25rem;">
+
+<!-- ── Tools & History ───────────────────────────────────────────────────── -->
+<div class="mb-2">
+  <p class="text-secondary small text-uppercase fw-semibold mb-3" style="letter-spacing:.07em;">Tools &amp; History</p>
+</div>
+
+<div class="row g-3">
+
+  <div class="col-md-3">
     <div class="card h-100 border-secondary">
       <div class="card-body d-flex flex-column">
-        <div class="card-icon mb-2">🧠</div>
-        <h5 class="card-title fw-bold">Strategy Dashboard</h5>
-        <p class="card-text text-secondary flex-grow-1">Regime detection, move phase, OI walls and linear move score. Updates live from stored candles.</p>
-        <a href="/dashboard" class="btn btn-primary mt-2">Open &rarr;</a>
+        <div class="card-icon mb-2" style="font-size:1.5rem;">🔬</div>
+        <h6 class="card-title fw-semibold">Option Analyzer</h6>
+        <p class="card-text text-secondary small flex-grow-1">Live option chain with OI, Greeks and change tracking.</p>
+        <a href="/analyzer" class="btn btn-outline-secondary btn-sm mt-2">Open →</a>
       </div>
     </div>
   </div>
 
-  <div class="col-md-4">
+  <div class="col-md-3">
     <div class="card h-100 border-secondary">
       <div class="card-body d-flex flex-column">
-        <div class="card-icon mb-2">📊</div>
-        <h5 class="card-title fw-bold">Trade History</h5>
-        <p class="card-text text-secondary flex-grow-1">Review completed trades, P&amp;L summary, and win rate.</p>
-        <a href="/history" class="btn btn-outline-secondary mt-2">Open &rarr;</a>
+        <div class="card-icon mb-2" style="font-size:1.5rem;">🧠</div>
+        <h6 class="card-title fw-semibold">Strategy Dashboard</h6>
+        <p class="card-text text-secondary small flex-grow-1">Standalone regime, phase, OI walls and linear move score.</p>
+        <a href="/dashboard" class="btn btn-outline-secondary btn-sm mt-2">Open →</a>
       </div>
     </div>
   </div>
 
-  <div class="col-md-4">
+  <div class="col-md-3">
     <div class="card h-100 border-secondary">
       <div class="card-body d-flex flex-column">
-        <div class="card-icon mb-2">⚙️</div>
-        <h5 class="card-title fw-bold">Settings</h5>
-        <p class="card-text text-secondary flex-grow-1">Manage Telegram auth and Dhan API credentials.</p>
-        <a href="/settings" class="btn btn-outline-secondary mt-2">Open &rarr;</a>
+        <div class="card-icon mb-2" style="font-size:1.5rem;">📊</div>
+        <h6 class="card-title fw-semibold">Trade History</h6>
+        <p class="card-text text-secondary small flex-grow-1">Review completed trades, P&amp;L summary, and win rate.</p>
+        <a href="/history" class="btn btn-outline-secondary btn-sm mt-2">Open →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-3">
+    <div class="card h-100 border-secondary">
+      <div class="card-body d-flex flex-column">
+        <div class="card-icon mb-2" style="font-size:1.5rem;">⚙️</div>
+        <h6 class="card-title fw-semibold">Settings</h6>
+        <p class="card-text text-secondary small flex-grow-1">Manage Telegram auth and Dhan API credentials.</p>
+        <a href="/settings" class="btn btn-outline-secondary btn-sm mt-2">Open →</a>
       </div>
     </div>
   </div>

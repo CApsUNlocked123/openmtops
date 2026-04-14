@@ -10,7 +10,7 @@ import os
 if os.getenv("TESTING") == "1":
     import sys
     from testing import mock_dhan, mock_price_feed, mock_candle_service
-    sys.modules["dhan"]           = mock_dhan
+    sys.modules["dhan_broker"]     = mock_dhan
     sys.modules["price_feed"]     = mock_price_feed
     sys.modules["candle_service"] = mock_candle_service
     print("[TESTING] mock modules injected: dhan, price_feed, candle_service")
@@ -29,13 +29,15 @@ import routes.oi_tracker  as oi_tracker_mod
 import routes.dashboard   as dashboard_mod
 import routes.auth        as auth_mod
 import routes.notifications as notif_mod
+import routes.setup       as setup_mod
 import candle_service
 import notification_service
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    app.secret_key = os.getenv("SECRET_KEY") or "dhan-local-secret-2024"
+    from runtime_config import get_secret_key
+    app.secret_key = get_secret_key()
 
     socketio.init_app(app, async_mode="threading", cors_allowed_origins="*")
 
@@ -44,7 +46,8 @@ def create_app() -> Flask:
         candle_service.start()
     notification_service.start(socketio)
 
-    # ── Blueprints — auth first so its routes take priority ───────────────────
+    # ── Blueprints — setup first, then auth, then everything else ────────────
+    app.register_blueprint(setup_mod.bp)
     app.register_blueprint(auth_mod.bp)
     app.register_blueprint(home_mod.bp)
     app.register_blueprint(live_mod.bp)
@@ -68,6 +71,13 @@ def create_app() -> Flask:
         "/settings", "/settings/tg/phone", "/settings/tg/code",
         "/settings/tg/2fa", "/settings/tg/reauth", "/settings/dhan",
         "/settings/restarting",
+        "/settings/telegram/api", "/settings/telegram/channel", "/settings/pin",
+    }
+
+    SETUP_PATHS = {
+        "/setup", "/setup/step/1", "/setup/step/2", "/setup/step/3",
+        "/setup/step/4", "/setup/complete", "/setup/tg/phone",
+        "/setup/tg/code", "/setup/tg/2fa", "/setup/step/3/test",
     }
 
     @app.before_request
@@ -77,13 +87,22 @@ def create_app() -> Flask:
         path = request.path
         if path.startswith("/static"):
             return
+
+        # Setup wizard guard — redirect everything until app is configured
+        from runtime_config import is_configured
+        if not is_configured():
+            if path not in SETUP_PATHS:
+                return redirect("/setup")
+            return  # allow wizard paths through
+
         if path in PUBLIC_PATHS:
             return
         # API polling: skip auth_ready so in-page widgets don't break mid-session
         if path.startswith("/api/"):
             return
         # PIN gate
-        if os.getenv("APP_PIN") and not session.get("pin_ok"):
+        from runtime_config import get as _cfg
+        if (_cfg("app_pin") or os.getenv("APP_PIN")) and not session.get("pin_ok"):
             return redirect(f"/pin?next={path}")
         # API credential readiness (Dhan + Telegram both healthy)
         if not session.get("auth_ready"):

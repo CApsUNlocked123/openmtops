@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, session, flash
 from math import floor
-from dhan import dhan, lookup_security
+from dhan_broker import dhan, lookup_security
 
 bp = Blueprint("custom", __name__)
 
@@ -26,7 +26,11 @@ def custom_trade():
 
         targets = [t.strip() for t in targets_raw.split(",") if t.strip()]
 
-        sec = lookup_security(instrument, strike, option_type)
+        try:
+            sec = lookup_security(instrument, strike, option_type)
+        except Exception as e:
+            flash(f"Instrument lookup failed: {e}", "danger")
+            return render_template("custom.html", indices=INDICES, form=request.form)
         if not sec:
             flash(f"No contract found for {instrument} {strike} {option_type}.", "warning")
             return render_template("custom.html", indices=INDICES, form=request.form)

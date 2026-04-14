@@ -1,0 +1,87 @@
+{% extends "setup_base.html" %}
+{% set current_step = 3 %}
+{% block title %}Dhan Setup — OpenMTOps{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body p-4">
+    <h5 class="fw-bold mb-1">Step 3 — Dhan Broker</h5>
+    <p class="text-secondary small mb-3">
+      Enter your Dhan broker credentials to enable order placement and market data.
+    </p>
+
+    <div class="alert alert-secondary small mb-3">
+      <strong>Where to find your credentials:</strong><br>
+      Log in to <strong>dhanhq.co</strong> → Account → API Access → Generate Token.<br>
+      The <em>Client ID</em> is your account number. The <em>Access Token</em> expires annually.
+    </div>
+
+    <form method="POST" action="/setup/step/3" id="dhanForm">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Client ID <span class="text-danger">*</span></label>
+        <input type="text" name="client_id" id="clientIdInput" class="form-control"
+               value="{{ saved_client_id or '' }}" placeholder="e.g. 1100012345" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Access Token <span class="text-danger">*</span></label>
+        <textarea name="access_token" id="tokenInput" class="form-control font-monospace"
+                  rows="3" placeholder="Paste your JWT access token here" required></textarea>
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-semibold">API Key <span class="text-secondary">(optional)</span></label>
+        <input type="text" name="api_key" class="form-control font-monospace"
+               value="{{ saved_api_key or '' }}" placeholder="8-character key">
+      </div>
+      <div class="mb-4">
+        <label class="form-label fw-semibold">API Secret <span class="text-secondary">(optional)</span></label>
+        <input type="text" name="api_secret" class="form-control font-monospace"
+               value="{{ saved_api_secret or '' }}" placeholder="UUID secret">
+      </div>
+
+      <div id="testResult" class="mb-3 d-none"></div>
+
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-outline-secondary" id="testBtn">Test Connection</button>
+        <button type="submit" class="btn btn-primary flex-grow-1">Continue →</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('testBtn').addEventListener('click', function() {
+  const btn = this;
+  const result = document.getElementById('testResult');
+  const clientId = document.getElementById('clientIdInput').value.trim();
+  const token    = document.getElementById('tokenInput').value.trim();
+  if (!clientId || !token) {
+    result.className = 'mb-3 alert alert-warning';
+    result.textContent = 'Enter Client ID and Access Token first.';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Testing…';
+  fetch('/setup/step/3/test', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({client_id: clientId, access_token: token})
+  })
+  .then(r => r.json())
+  .then(d => {
+    result.className = d.ok ? 'mb-3 alert alert-success' : 'mb-3 alert alert-danger';
+    result.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.error;
+  })
+  .catch(e => {
+    result.className = 'mb-3 alert alert-danger';
+    result.textContent = 'Request failed: ' + e;
+  })
+  .finally(() => {
+    btn.disabled = false;
+    btn.textContent = 'Test Connection';
+    result.classList.remove('d-none');
+  });
+});
+</script>
+{% endblock %}

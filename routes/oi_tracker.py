@@ -11,7 +11,7 @@ from flask import Blueprint, render_template, redirect, request, jsonify, sessio
 from flask_socketio import join_room
 
 import price_feed
-from dhan import dhan, dhan_context, lookup_security
+from dhan_broker import dhan, dhan_context, lookup_security
 from dhanhq import MarketFeed
 
 log = logging.getLogger(__name__)

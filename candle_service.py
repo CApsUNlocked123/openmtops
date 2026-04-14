@@ -108,7 +108,7 @@ def _epoch_to_ist_str(epoch: int) -> str:
 
 
 def _fetch_and_store_all():
-    from dhan import dhan
+    from dhan_broker import dhan
     today = date.today().strftime("%Y-%m-%d")
 
     with _get_conn() as conn:
@@ -254,7 +254,7 @@ def fetch_instrument(instrument: str) -> int:
         log.debug("[candle_service] fetch_instrument: outside market hours, skipping")
         return 0
 
-    from dhan import dhan
+    from dhan_broker import dhan
     instrument = instrument.upper()
     instr_cfg = next((i for i in TRACKED if i["name"] == instrument), None)
     if not instr_cfg:
@@ -327,7 +327,7 @@ def get_live_candle(instrument: str) -> dict | None:
     Returns None outside market hours or if API has no data.
     The returned dict has a 'partial': True field.
     """
-    from dhan import dhan
+    from dhan_broker import dhan
     instrument = instrument.upper()
     instr_cfg = next((i for i in TRACKED if i["name"] == instrument), None)
     if not instr_cfg:

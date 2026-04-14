@@ -4,13 +4,18 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3 class="fw-bold mb-0">⚙️ Settings</h3>
-  <a href="/" class="btn btn-outline-secondary btn-sm">← Home</a>
+  <div class="d-flex gap-2">
+    <form method="post" action="/settings/restarting">
+      <button type="submit" class="btn btn-outline-warning btn-sm">↺ Restart</button>
+    </form>
+    <a href="/" class="btn btn-outline-secondary btn-sm">← Home</a>
+  </div>
 </div>
 <hr class="border-secondary">
 
 <div class="row g-4">
 
-  <!-- Telegram Section -->
+  <!-- Telegram Auth Section -->
   <div class="col-md-6">
     <div class="card border-secondary h-100">
       <div class="card-header fw-bold">Telegram Authentication</div>
@@ -71,22 +76,93 @@
           <button type="submit" class="btn btn-outline-info btn-sm">Test Connection</button>
         </form>
 
-        <details>
-          <summary class="text-secondary small" style="cursor:pointer;">Update credentials (takes effect on restart)</summary>
-          <form method="post" action="/settings/dhan" class="mt-3">
-            <div class="mb-3">
-              <label class="form-label">Client ID</label>
-              <input type="text" name="client_id" class="form-control"
-                     value="{{ client_id }}" required>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Access Token</label>
-              <textarea name="access_token" class="form-control" rows="4" required></textarea>
-            </div>
-            <button type="submit" class="btn btn-warning w-100">💾 Save &amp; Restart</button>
-          </form>
-        </details>
+        <form method="post" action="/settings/dhan">
+          <div class="mb-3">
+            <label class="form-label">Client ID</label>
+            <input type="text" name="client_id" class="form-control"
+                   value="{{ client_id }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Access Token</label>
+            <textarea name="access_token" class="form-control font-monospace" rows="3"
+                      placeholder="Paste new JWT token here" required></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">💾 Save Credentials</button>
+        </form>
 
+      </div>
+    </div>
+  </div>
+
+  <!-- Telegram API Credentials -->
+  <div class="col-md-6">
+    <div class="card border-secondary">
+      <div class="card-header fw-bold">
+        Telegram API Credentials
+        <span class="badge bg-secondary ms-2 fw-normal small">rarely changed</span>
+      </div>
+      <div class="card-body">
+        <p class="small text-secondary mb-3">
+          The API ID and Hash from <a href="https://my.telegram.org/apps" target="_blank" rel="noopener">my.telegram.org</a>.
+          Only update if you rotate your Telegram app credentials.
+        </p>
+        <form method="post" action="/settings/telegram/api">
+          <div class="mb-3">
+            <label class="form-label">API ID</label>
+            <input type="number" name="api_id" class="form-control"
+                   value="{{ tg_api_id or '' }}" placeholder="e.g. 12345678">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">API Hash</label>
+            <input type="text" name="api_hash" class="form-control font-monospace"
+                   value="{{ tg_api_hash or '' }}" placeholder="32-character hex">
+          </div>
+          <button type="submit" class="btn btn-outline-primary w-100">Update API Credentials</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Telegram Channel -->
+  <div class="col-md-6">
+    <div class="card border-secondary">
+      <div class="card-header fw-bold">Telegram Channel</div>
+      <div class="card-body">
+        <p class="small text-secondary mb-3">
+          The channel or group OpenMTOps monitors for trading tips.
+          Use a Telegram bot like <code>@userinfobot</code> to find a channel ID.
+        </p>
+        <form method="post" action="/settings/telegram/channel">
+          <div class="mb-3">
+            <label class="form-label">Channel ID</label>
+            <input type="text" name="channel_id" class="form-control font-monospace"
+                   value="{{ current_channel_id or '' }}" placeholder="-1001234567890">
+          </div>
+          <button type="submit" class="btn btn-outline-primary w-100">Update Channel</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Access PIN -->
+  <div class="col-md-6">
+    <div class="card border-secondary">
+      <div class="card-header fw-bold">Access PIN</div>
+      <div class="card-body">
+        <p class="small text-secondary mb-3">
+          If set, all browser sessions require this PIN before accessing the app.
+          Leave blank to disable.
+          {% if pin_set %}<br><span class="text-success">✅ PIN is currently enabled.</span>{% endif %}
+        </p>
+        <form method="post" action="/settings/pin">
+          <div class="mb-3">
+            <label class="form-label">New PIN (4–8 digits)</label>
+            <input type="password" name="pin" class="form-control"
+                   placeholder="Leave blank to disable" inputmode="numeric"
+                   maxlength="8" autocomplete="new-password">
+          </div>
+          <button type="submit" class="btn btn-outline-primary w-100">Update PIN</button>
+        </form>
       </div>
     </div>
   </div>

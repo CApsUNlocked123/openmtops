@@ -2,26 +2,43 @@ import os
 import sys
 import threading
 from flask import Blueprint, render_template, request, redirect, session, flash
-from tgwrap import is_authorized, send_code, complete_sign_in
-from runtime_config import get_dhan_credentials, save_dhan_credentials
-from dhan import dhan
+from telegram_client import is_authorized, send_code, complete_sign_in, reset_telegram_client
+from runtime_config import get_dhan_credentials, save_dhan_credentials, set_many, flush_to_dotenv
+from dhan_broker import dhan, reset_dhan
 
 bp = Blueprint("settings", __name__)
 
 
 @bp.route("/settings")
 def settings():
-    authed = is_authorized()
-    if authed:
-        session["tg_authorized"] = True
+    # If user explicitly triggered re-auth, keep the phone form visible —
+    # don't let is_authorized() flip it back to "authenticated".
+    if session.get("tg_step"):
+        authed = False
+    else:
+        authed = is_authorized()
+        if authed:
+            session["tg_authorized"] = True
+        else:
+            session.pop("tg_authorized", None)
     client_id, token = get_dhan_credentials()
     masked_token = (token[:8] + "..." + token[-4:]) if len(token) > 12 else "***"
+
+    from runtime_config import _load, get_telegram_channel_id, get as _cfg
+    cfg = _load()
+    tg  = cfg.get("telegram", {})
+
     return render_template(
         "settings.html",
         tg_authorized=authed,
         tg_step=session.get("tg_step", "phone"),
         client_id=client_id,
         masked_token=masked_token,
+        tg_api_id=tg.get("api_id", ""),
+        tg_api_hash=tg.get("api_hash", ""),
+        tg_api_configured=bool(tg.get("api_id") and tg.get("api_hash")),
+        current_channel_id=get_telegram_channel_id(),
+        pin_set=bool(_cfg("app_pin")),
     )
 
 
@@ -83,9 +100,10 @@ def tg_2fa():
 
 @bp.route("/settings/tg/reauth", methods=["POST"])
 def tg_reauth():
-    session.pop("tg_step", None)
     session["tg_step"] = "phone"
-    session["tg_authorized"] = False
+    session.pop("tg_authorized", None)
+    session.pop("tg_phone", None)
+    session.pop("tg_hash", None)
     return redirect("/settings")
 
 
@@ -96,25 +114,77 @@ def dhan_update():
     client_id = request.form.get("client_id", "").strip()
     token     = request.form.get("access_token", "").strip()
     if client_id and token:
-        save_dhan_credentials(client_id, token)
-        return redirect("/settings/restarting")
+        save_dhan_credentials(client_id, token)  # writes config.json + flushes .env
+        reset_dhan()  # force re-init on next Dhan API call (no restart needed)
+        flash("Dhan credentials updated successfully.", "success")
     else:
         flash("Both Client ID and Access Token are required.", "warning")
     return redirect("/settings")
 
 
-@bp.route("/settings/restarting")
+@bp.route("/settings/restarting", methods=["GET", "POST"])
 def restarting():
-    """Show a 'restarting' page, then restart the process after 1 s."""
+    """Restart the Python process.
+
+    Strategy (Windows-safe):
+      1. Return the spinner page immediately so the browser gets a response.
+      2. After 0.8 s, spawn a NEW python process (not exec — spawn).
+      3. After a further 0.3 s, call os._exit(0) to kill THIS process and
+         release the port.  The new process is already in its startup phase
+         and will bind the port as soon as it's free.
+    """
+    import subprocess
+
     def _do_restart():
-        import time, subprocess
-        time.sleep(1)
-        subprocess.Popen([sys.executable, '-m', 'flask'] + sys.argv[1:])
+        import time
+        time.sleep(0.8)
+        subprocess.Popen([sys.executable] + sys.argv)
+        time.sleep(0.3)   # give the child a moment before port is freed
         os._exit(0)
 
-    threading.Thread(target=_do_restart, daemon=True).start()
+    threading.Thread(target=_do_restart, daemon=False).start()
     return render_template("restarting.html")
 
+
+# ── Telegram API credentials ──────────────────────────────────────────────────
+
+@bp.route("/settings/telegram/api", methods=["POST"])
+def telegram_api_update():
+    api_id   = request.form.get("api_id",   "").strip()
+    api_hash = request.form.get("api_hash", "").strip()
+    if api_id and api_hash:
+        set_many({"telegram.api_id": int(api_id), "telegram.api_hash": api_hash})
+        flush_to_dotenv()
+        reset_telegram_client()
+        flash("Telegram API credentials updated. Re-authenticate below.", "info")
+    else:
+        flash("Both API ID and API Hash are required.", "warning")
+    return redirect("/settings")
+
+
+@bp.route("/settings/telegram/channel", methods=["POST"])
+def telegram_channel_update():
+    channel_id = request.form.get("channel_id", "").strip()
+    if channel_id:
+        try:
+            set_many({"telegram_channel_id": int(channel_id)})
+            flush_to_dotenv()
+            flash("Telegram channel updated.", "success")
+        except ValueError:
+            flash("Channel ID must be a number.", "warning")
+    return redirect("/settings")
+
+
+@bp.route("/settings/pin", methods=["POST"])
+def pin_update():
+    pin = request.form.get("pin", "").strip()
+    set_many({"app_pin": pin})
+    flush_to_dotenv()
+    flash("PIN updated." if pin else "PIN disabled.", "success")
+    return redirect("/settings")
+
+
+# ── Dhan test connection ──────────────────────────────────────────────────────
 
 @bp.route("/settings/dhan/test", methods=["POST"])
 def dhan_test():

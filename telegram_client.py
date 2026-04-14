@@ -10,11 +10,15 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def _get_api_credentials() -> tuple[int, str]:
-    """Read Telegram API credentials at call time so runtime .env changes are picked up."""
-    from globals import API_APP, API_HASH
-    return (int(API_APP) if API_APP else 0, API_HASH or "")
+    """Read Telegram API credentials at call time so runtime config changes are picked up."""
+    from runtime_config import get_telegram_credentials
+    return get_telegram_credentials()
 
-CHANNEL_ID = -1001881641339
+
+def _get_channel_id() -> int:
+    """Return the monitored Telegram channel ID (configurable via Settings or .env)."""
+    from runtime_config import get_telegram_channel_id
+    return get_telegram_channel_id()
 # Allow overriding session path via env var so Docker can mount it on a named volume.
 SESSION_FILE = os.environ.get(
     "TELETHON_SESSION",
@@ -34,27 +38,30 @@ def is_tip(text):
 def parse_tip(text):
     """Parse key fields from a tip message."""
     symbol = re.search(r'#(\w+)', text, re.IGNORECASE)
-    strike = re.search(r'\b(\d{4,6})\b', text)
-    option_type = re.search(r'\b(PE|CE)\b', text, re.IGNORECASE)
-    entry = re.search(r'above\s+([\d.]+)', text, re.IGNORECASE)
-    sl = re.search(r'SL\s+([\d.]+)', text, re.IGNORECASE)
-    targets = re.findall(r'[Tt]arget\s+([\d./]+)', text)
+    # Match plain "22900" OR concatenated "22900CE" / "22900PE"
+    strike = re.search(r'\b(\d{4,6})(CE|PE)?\b', text, re.IGNORECASE)
+    # Match standalone "CE"/"PE" or concatenated "22900CE"/"22900PE"
+    option_type = re.search(r'(?<!\w)(PE|CE)(?!\w)|(?<=\d)(PE|CE)', text, re.IGNORECASE)
+    # Match "above 90" or "@90" or "@ 90"
+    entry = re.search(r'above\s+([\d.]+)|@\s*([\d.]+)', text, re.IGNORECASE)
+    sl = re.search(r'SL\s*[:\-]?\s*([\d.]+)', text, re.IGNORECASE)
+    targets = re.findall(r'[Tt]arget\s*[:\-]?\s*([\d./]+)', text)
 
     return {
         "symbol":   symbol.group(1).upper() if symbol else None,
         "strike":   strike.group(1) if strike else None,
-        "type":     option_type.group(1).upper() if option_type else None,
-        "entry":    entry.group(1) if entry else None,
+        "type":     (option_type.group(1) or option_type.group(2)).upper() if option_type else None,
+        "entry":    (entry.group(1) or entry.group(2)) if entry else None,
         "sl":       sl.group(1) if sl else None,
         "targets":  targets[0].split('/') if targets else [],
         "raw":      text.strip(),
     }
 
-async def fetch_tips_list(limit=50):
+async def fetch_tips_list(limit=200):
     """Fetch tips using the shared persistent client (no event-loop churn)."""
     tips = []
     client = await _get_client()          # reuse the long-lived auth client
-    async for msg in client.iter_messages(CHANNEL_ID, limit=limit):
+    async for msg in client.iter_messages(_get_channel_id(), limit=limit):
         if is_tip(msg.text):
             tip = parse_tip(msg.text)
             utc_date = msg.date.replace(tzinfo=timezone.utc) if msg.date.tzinfo is None else msg.date
@@ -63,16 +70,16 @@ async def fetch_tips_list(limit=50):
             tips.append(tip)
     return tips
 
-def get_tips(limit=50):
-    """Synchronous wrapper for Streamlit — runs on the persistent auth loop."""
+def get_tips(limit=200):
+    """Synchronous wrapper — runs on the persistent auth loop."""
     return _auth_run(fetch_tips_list(limit), timeout=60)
 
 async def read_tips(limit=50):
     """Fetch recent tip messages from the channel."""
     api_id, api_hash = _get_api_credentials()
     async with TelegramClient(SESSION_FILE, api_id, api_hash) as client:
-        print(f"Fetching last {limit} messages from channel {CHANNEL_ID}...\n")
-        async for msg in client.iter_messages(CHANNEL_ID, limit=limit):
+        print(f"Fetching last {limit} messages from channel {_get_channel_id()}...\n")
+        async for msg in client.iter_messages(_get_channel_id(), limit=limit):
             if is_tip(msg.text):
                 tip = parse_tip(msg.text)
                 print(f"[{msg.date.strftime('%Y-%m-%d %H:%M')}]")
@@ -100,7 +107,7 @@ async def listen_live():
                 print(f"  Raw     : {tip['raw']}")
                 print()
 
-        client.add_event_handler(_handler, events.NewMessage(chats=CHANNEL_ID))
+        client.add_event_handler(_handler, events.NewMessage(chats=_get_channel_id()))
 
         await client.run_until_disconnected()
 
@@ -132,13 +139,44 @@ async def _get_client() -> TelegramClient:
     """Return the shared auth client, recreating if credentials have changed."""
     global _auth_client, _auth_client_id
     api_id, api_hash = _get_api_credentials()
-    # Recreate if never built, or built with placeholder api_id=0
-    if _auth_client is None or (api_id and _auth_client_id != api_id):
+
+    if not api_id or not api_hash:
+        raise RuntimeError(
+            "Telegram API credentials not configured. "
+            "Set API ID and API Hash in Settings → Telegram API Credentials."
+        )
+
+    if _auth_client is None or _auth_client_id != api_id:
+        # Disconnect old client first so it releases the session file lock
+        if _auth_client is not None:
+            try:
+                await _auth_client.disconnect()
+            except Exception:
+                pass
         _auth_client    = TelegramClient(SESSION_FILE, api_id, api_hash)
         _auth_client_id = api_id
+
     if not _auth_client.is_connected():
         await _auth_client.connect()
     return _auth_client
+
+
+def reset_telegram_client() -> None:
+    """
+    Force re-initialization of the Telegram client on next use.
+    Call after saving new Telegram API credentials so the new
+    api_id/api_hash are picked up without restarting the process.
+    """
+    global _auth_client, _auth_client_id
+    if _auth_client is not None:
+        try:
+            asyncio.run_coroutine_threadsafe(
+                _auth_client.disconnect(), _get_auth_loop()
+            ).result(timeout=5)
+        except Exception:
+            pass
+    _auth_client    = None
+    _auth_client_id = 0
 
 
 def is_authorized() -> bool:

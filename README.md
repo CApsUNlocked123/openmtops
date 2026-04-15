@@ -355,6 +355,48 @@ Quick overview:
 
 ---
 
+## Troubleshooting
+
+### `No pyvenv.cfg file` / broken virtualenv
+This happens when the `venv/` directory exists but is incomplete (moved, partially created, or Python version changed).
+
+**Fix — delete and recreate the venv:**
+```bash
+# Windows
+rmdir /s /q venv
+python -m venv venv
+venv\Scripts\activate
+pip install git+https://github.com/dhan-oss/DhanHQ-py.git
+pip install -r requirements.txt
+
+# Linux / macOS
+rm -rf venv
+python -m venv venv
+source venv/bin/activate
+pip install git+https://github.com/dhan-oss/DhanHQ-py.git
+pip install -r requirements.txt
+```
+
+If you use `start.bat` on Windows, it detects a missing `pyvenv.cfg` automatically and recreates the venv for you.
+
+### Port 5000 already in use
+`start.bat` kills any stale Python process on port 5000 automatically. If you are running manually:
+```bash
+# Find and kill the process (Windows)
+netstat -ano | findstr :5000
+taskkill /PID <pid> /F
+```
+
+### Telegram `anon.session` errors
+The session file is created by the setup wizard. If it is missing or corrupted, re-run the wizard by deleting `config.json` and restarting the app, or go to **Profile → Settings → Telegram → Re-authenticate**.
+
+### Dhan WebSocket not connecting
+- Confirm `DHAN_CLIENTID` and `DHAN_ACCESSTOKEN` are set correctly
+- Access tokens expire annually — regenerate on the Dhan portal and update via **Profile → Settings → Dhan**
+- The price feed only starts when an active trade is watching or OI tracker is running
+
+---
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Pull requests welcome — please open an issue first for significant changes.

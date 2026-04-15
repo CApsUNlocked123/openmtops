@@ -85,12 +85,34 @@ def home_snapshot():
     from price_feed import price_cache
     import routes.live as _live
 
-    # ── Index spot prices from live price cache ────────────────────────────
+    # ── Index spot prices ─────────────────────────────────────────────────
+    # Priority: 1) live WebSocket tick  2) live candle close  3) last candle
+    import candle_service
     indices = {}
     for name, sid in _INDEX_SIDS.items():
+        ltp = None
+        # 1. Real-time tick (only available when a feed is running)
         tick = price_cache.get(sid, {})
-        ltp  = tick.get("LTP") or tick.get("ltp")
-        indices[name] = round(float(ltp), 2) if ltp else None
+        raw  = tick.get("LTP") or tick.get("ltp")
+        if raw:
+            ltp = round(float(raw), 2)
+        # 2. Current in-progress 5-min bar close
+        if ltp is None:
+            try:
+                live = candle_service.get_live_candle(name)
+                if live and live.get("close"):
+                    ltp = round(float(live["close"]), 2)
+            except Exception:
+                pass
+        # 3. Latest completed candle close
+        if ltp is None:
+            try:
+                rows = candle_service.get_candles(name, n=1)
+                if rows and rows[0].get("close"):
+                    ltp = round(float(rows[0]["close"]), 2)
+            except Exception:
+                pass
+        indices[name] = ltp
 
     # ── Active trade from live.py module state ────────────────────────────
     trade_state = _live._trade.get("state", "idle")

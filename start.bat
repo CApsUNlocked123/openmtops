@@ -28,14 +28,52 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 
 echo.
 
-:: ── Activate virtualenv ─────────────────────────────────────────────────────
-if exist "venv\Scripts\activate.bat" (
-    echo  [+] Activating virtualenv...
-    call venv\Scripts\activate.bat
-) else (
-    echo  [!] No venv found — using system Python.
+:: ── Virtualenv: validate, recreate if broken, create if missing ─────────────
+
+:: Case 1: venv exists but pyvenv.cfg is missing (broken venv)
+if exist "venv" (
+    if not exist "venv\pyvenv.cfg" (
+        echo  [!] venv is broken — pyvenv.cfg missing. Recreating...
+        rmdir /s /q venv
+        python -m venv venv
+        if errorlevel 1 (
+            echo  [!] Failed to create venv. Is Python installed and on PATH?
+            pause >nul
+            exit /b 1
+        )
+        echo  [+] venv recreated successfully.
+        echo  [!] Installing dependencies...
+        call venv\Scripts\activate.bat
+        pip install git+https://github.com/dhan-oss/DhanHQ-py.git --quiet
+        pip install -r requirements.txt --quiet
+        echo  [+] Dependencies installed.
+        goto launch
+    )
 )
 
+:: Case 2: venv does not exist at all
+if not exist "venv" (
+    echo  [!] No venv found — creating one...
+    python -m venv venv
+    if errorlevel 1 (
+        echo  [!] Failed to create venv. Is Python installed and on PATH?
+        pause >nul
+        exit /b 1
+    )
+    echo  [+] venv created.
+    echo  [!] Installing dependencies...
+    call venv\Scripts\activate.bat
+    pip install git+https://github.com/dhan-oss/DhanHQ-py.git --quiet
+    pip install -r requirements.txt --quiet
+    echo  [+] Dependencies installed.
+    goto launch
+)
+
+:: Case 3: venv is valid — just activate
+echo  [+] Activating virtualenv...
+call venv\Scripts\activate.bat
+
+:launch
 echo  [+] Launching app...
 echo.
 

@@ -6,8 +6,8 @@
 <div class="card">
   <div class="card-body p-4">
     <h5 class="fw-bold mb-1">Step 3 — Dhan Broker</h5>
-    <p class="text-secondary small mb-3">
-      Enter your Dhan broker credentials to enable order placement and market data.
+    <p class="section-intro mb-3">
+      Enter your Dhan broker credentials to enable order placement and live market data. Your token is stored encrypted.
     </p>
 
     <div class="alert alert-secondary small mb-3">
@@ -18,31 +18,31 @@
 
     <form method="POST" action="/setup/step/3" id="dhanForm">
       <div class="mb-3">
-        <label class="form-label fw-semibold">Client ID <span class="text-danger">*</span></label>
+        <label class="form-label-app fw-semibold" for="clientIdInput">Client ID <span class="text-danger">*</span></label>
         <input type="text" name="client_id" id="clientIdInput" class="form-control"
                value="{{ saved_client_id or '' }}" placeholder="e.g. 1100012345" required>
       </div>
       <div class="mb-3">
-        <label class="form-label fw-semibold">Access Token <span class="text-danger">*</span></label>
+        <label class="form-label-app fw-semibold" for="tokenInput">Access Token <span class="text-danger">*</span></label>
         <textarea name="access_token" id="tokenInput" class="form-control font-monospace"
                   rows="3" placeholder="Paste your JWT access token here" required></textarea>
       </div>
       <div class="mb-3">
-        <label class="form-label fw-semibold">API Key <span class="text-secondary">(optional)</span></label>
-        <input type="text" name="api_key" class="form-control font-monospace"
+        <label class="form-label-app fw-semibold" for="su3-apikey">API Key <span class="text-secondary">(optional)</span></label>
+        <input type="text" id="su3-apikey" name="api_key" class="form-control font-monospace"
                value="{{ saved_api_key or '' }}" placeholder="8-character key">
       </div>
       <div class="mb-4">
-        <label class="form-label fw-semibold">API Secret <span class="text-secondary">(optional)</span></label>
-        <input type="text" name="api_secret" class="form-control font-monospace"
+        <label class="form-label-app fw-semibold" for="su3-apisecret">API Secret <span class="text-secondary">(optional)</span></label>
+        <input type="text" id="su3-apisecret" name="api_secret" class="form-control font-monospace"
                value="{{ saved_api_secret or '' }}" placeholder="UUID secret">
       </div>
 
       <div id="testResult" class="mb-3 d-none"></div>
 
       <div class="d-flex gap-2">
-        <button type="button" class="btn btn-outline-secondary" id="testBtn">Test Connection</button>
-        <button type="submit" class="btn btn-primary flex-grow-1">Continue →</button>
+        <button type="button" class="btn-secondary-app" id="testBtn">Test Connection</button>
+        <button type="submit" class="btn-primary-app flex-grow-1">Continue →</button>
       </div>
     </form>
   </div>

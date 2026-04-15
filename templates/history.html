@@ -2,9 +2,12 @@
 {% block title %}Trade History{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h3 class="fw-bold mb-0">📊 Trade History</h3>
-  <a href="/" class="btn btn-outline-secondary btn-sm">← Home</a>
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h3 class="fw-bold mb-1">📊 Trade History</h3>
+    <p class="page-subtitle mb-0">Every completed trade with entry, exit, and realised P&amp;L. Click a row for full details.</p>
+  </div>
+  <a href="/" class="btn-ghost-app btn-sm">← Home</a>
 </div>
 <hr class="border-secondary">
 
@@ -19,8 +22,8 @@
   <div class="col-md-3">
     <div class="metric-card">
       <div class="metric-label">Total P&amp;L</div>
-      <div class="metric-value {% if summary.pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
-        ₹{{ "%.2f" | format(summary.pnl) }}
+      <div class="metric-value {% if summary.pnl >= 0 %}pnl-pos{% else %}pnl-neg{% endif %}">
+        {% if summary.pnl >= 0 %}+{% else %}−{% endif %}₹{{ "%.2f" | format(summary.pnl|abs) }}
       </div>
     </div>
   </div>
@@ -72,8 +75,8 @@
         <td class="text-end">{{ "%.2f"|format(t.exit_price|float) if t.exit_price else '—' }}</td>
         <td class="text-end">{{ t.lots or '—' }}</td>
         <td class="text-end">{{ t.quantity or '—' }}</td>
-        <td class="text-end fw-bold {% if t.pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
-          ₹{{ "%.2f"|format(t.pnl|float) }}
+        <td class="text-end fw-bold {% if t.pnl >= 0 %}pnl-pos{% else %}pnl-neg{% endif %}">
+          {% if t.pnl >= 0 %}+{% else %}−{% endif %}₹{{ "%.2f"|format(t.pnl|float|abs) }}
         </td>
       </tr>
       <tr class="collapse" id="detail-{{ loop.index }}">
@@ -86,6 +89,13 @@
   </table>
 </div>
 {% else %}
-  <div class="alert alert-info">No completed trades yet.</div>
+  <div class="empty-state">
+    <div class="empty-state__icon" aria-hidden="true">📈</div>
+    <div class="empty-state__title">No completed trades yet</div>
+    <div class="empty-state__body">
+      Trades appear here once they exit. Start watching one from
+      <a class="empty-state__cta" href="/trade">ActiveTrade</a>.
+    </div>
+  </div>
 {% endif %}
 {% endblock %}

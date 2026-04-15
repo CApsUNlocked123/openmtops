@@ -2,19 +2,22 @@
 {% block title %}Live Tips{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h3 class="fw-bold mb-0">📡 Live Tips</h3>
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h3 class="fw-bold mb-1">📡 Live Tips</h3>
+    <p class="page-subtitle mb-0">Latest messages parsed from Telegram. Click any row to select and pre-fill a trade.</p>
+  </div>
   <div class="d-flex gap-2 align-items-center">
+    <label for="limit-sel" class="visually-hidden">Number of messages to fetch</label>
     <select id="limit-sel" class="form-select form-select-sm" style="width:auto;">
       {% for v in [20,50,100,200] %}
         <option value="{{ v }}" {% if v == limit %}selected{% endif %}>{{ v }} messages</option>
       {% endfor %}
     </select>
-    <button class="btn btn-outline-secondary btn-sm" onclick="refreshTips()">🔄 Refresh</button>
-    <a href="/" class="btn btn-outline-secondary btn-sm">← Home</a>
+    <button class="btn-ghost-app btn-sm" onclick="refreshTips()">🔄 Refresh</button>
+    <a href="/" class="btn-ghost-app btn-sm">← Home</a>
   </div>
 </div>
-<p class="text-secondary small mb-3">Source: Telegram</p>
 
 <hr class="border-secondary">
 
@@ -56,7 +59,13 @@
       </div>
     {% else %}
       <div class="p-3">
-        <div class="alert alert-warning mb-0">No tip messages found. Try increasing the scan range.</div>
+        <div class="empty-state">
+          <div class="empty-state__icon" aria-hidden="true">📡</div>
+          <div class="empty-state__title">No tip messages found</div>
+          <div class="empty-state__body">
+            Try increasing the scan range above, or check back after market hours when tips are usually posted.
+          </div>
+        </div>
       </div>
     {% endif %}
 
@@ -102,7 +111,7 @@
         <input type="hidden" name="entry"       id="form-entry">
         <input type="hidden" name="sl"          id="form-sl">
         <input type="hidden" name="targets"     id="form-targets">
-        <button type="submit" class="btn btn-success btn-lg w-100">
+        <button type="submit" class="btn-primary-app btn-lg w-100">
           ▶ Execute — Watch Live Price
         </button>
       </form>

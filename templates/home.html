@@ -7,7 +7,7 @@
 <div class="d-flex justify-content-between align-items-start mb-4">
   <div>
     <h2 class="fw-bold mb-1">Dashboard</h2>
-    <p class="stat-label mb-0">F&amp;O live operations</p>
+    <p class="page-subtitle">Your trading cockpit — index prices, P&amp;L, and strategy health at a glance.</p>
   </div>
   <div class="d-flex align-items-center gap-2">
     <span id="dhan-badge"
@@ -42,46 +42,81 @@
 <div class="row g-3 mb-4">
 
   <div class="col-6 col-md-3">
-    <div class="stat-card">
-      <div class="stat-label">Today P&amp;L</div>
-      <div class="stat-number" id="today-pnl"
-           style="color:{% if summary.today_pnl >= 0 %}var(--green){% else %}var(--red){% endif %}">
-        {% if summary.today_pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(summary.today_pnl) }}
+    <div class="stat-card stat-card-accent {% if summary.today_pnl >= 0 %}accent-green{% else %}accent-red{% endif %}">
+      <div class="d-flex justify-content-between align-items-start gap-2">
+        <div style="min-width:0;">
+          <div class="stat-label">Today P&amp;L<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Net realized profit/loss from trades closed since midnight (local time).</span></details></div>
+          <div class="stat-number" id="today-pnl"
+               style="color:{% if summary.today_pnl >= 0 %}var(--green){% else %}var(--red){% endif %}; font-size:1.45rem;">
+            {% if summary.today_pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(summary.today_pnl) }}
+          </div>
+          <div class="stat-sub" id="today-pnl-sub">realized today</div>
+        </div>
+        <canvas id="spark-today" class="sparkline-canvas" width="72" height="32"></canvas>
       </div>
-      <div class="stat-sub" id="today-pnl-sub">realized today</div>
     </div>
   </div>
 
   <div class="col-6 col-md-3">
-    <div class="stat-card">
-      <div class="stat-label">All-time P&amp;L</div>
-      <div class="stat-number" id="total-pnl"
-           style="color:{% if summary.pnl >= 0 %}var(--green){% else %}var(--red){% endif %}">
-        {% if summary.pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(summary.pnl) }}
+    <div class="stat-card stat-card-accent accent-purple">
+      <div class="d-flex justify-content-between align-items-start gap-2">
+        <div style="min-width:0;">
+          <div class="stat-label">All-time P&amp;L<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Cumulative net P&amp;L across every closed trade in your history.</span></details></div>
+          <div class="stat-number" id="total-pnl"
+               style="color:{% if summary.pnl >= 0 %}var(--green){% else %}var(--red){% endif %}; font-size:1.45rem;">
+            {% if summary.pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(summary.pnl) }}
+          </div>
+          <div class="stat-sub">{{ summary.total }} trades</div>
+        </div>
+        <canvas id="spark-alltime" class="sparkline-canvas" width="72" height="32"></canvas>
       </div>
-      <div class="stat-sub">{{ summary.total }} trades</div>
     </div>
   </div>
 
   <div class="col-6 col-md-3">
-    <div class="stat-card">
-      <div class="stat-label">Win Rate</div>
-      <div class="stat-number" id="win-rate">{{ summary.win_rate }}%</div>
+    <div class="stat-card stat-card-accent accent-blue">
+      <div class="stat-label">Win Rate<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Percentage of closed trades that ended profitable: wins / (wins + losses).</span></details></div>
+      <div class="stat-number" id="win-rate" style="font-size:1.45rem;">{{ summary.win_rate }}%</div>
       <div class="stat-sub" id="wins-losses">{{ summary.wins }}W / {{ summary.losses }}L</div>
     </div>
   </div>
 
   <div class="col-6 col-md-3">
-    <div class="stat-card">
-      <div class="stat-label">Open Positions</div>
+    <div class="stat-card stat-card-accent accent-orange">
+      <div class="stat-label">Open Positions<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Count of positions currently held with your broker (via Dhan).</span></details></div>
       <div class="stat-number" id="positions-count"
-           style="{% if dhan.count > 0 %}color:var(--blue){% endif %}">
+           style="{% if dhan.count > 0 %}color:var(--orange){% endif %}; font-size:1.45rem;">
         {{ dhan.count }}
       </div>
       <div class="stat-sub">{% if dhan.ok %}via Dhan{% else %}offline{% endif %}</div>
     </div>
   </div>
 
+</div>
+
+<!-- ── Main intraday chart ──────────────────────────────────────────────── -->
+<div class="stat-card stat-card-accent accent-purple mb-4" style="padding:20px 22px;">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+      <div class="stat-label">Intraday</div>
+      <div id="main-chart-title" style="font-weight:700; font-size:1.05rem; color:var(--text-primary);">NIFTY</div>
+    </div>
+    <div class="inst-strip" id="chart-idx-btns">
+      <button class="inst-btn active" data-idx="NIFTY">NIFTY</button>
+      <button class="inst-btn" data-idx="BANKNIFTY">BANKNIFTY</button>
+      <button class="inst-btn" data-idx="FINNIFTY">FINNIFTY</button>
+    </div>
+  </div>
+  <canvas id="main-chart" height="80"></canvas>
+  <div id="main-chart-empty" class="empty-state d-none" style="margin-top:10px;">
+    <div class="empty-state__icon" aria-hidden="true">📉</div>
+    <div class="empty-state__title">No candle data yet</div>
+    <div class="empty-state__body">
+      The market may be closed, or the candle service is warming up.
+      Chart will populate automatically once data starts streaming.
+    </div>
+    <a class="empty-state__cta" href="/analyzer">Open Analyzer →</a>
+  </div>
 </div>
 
 <!-- ── Active trade card ─────────────────────────────────────────────────── -->
@@ -110,9 +145,25 @@
   </div>
 </div>
 
+<!-- ── Empty-state for active trade (shown when none) ────────────────────── -->
+<div id="active-trade-empty" class="mb-4">
+  <div class="section-label">Active Trade</div>
+  <div class="empty-state">
+    <div class="empty-state__icon" aria-hidden="true">📈</div>
+    <div class="empty-state__title">No active trade</div>
+    <div class="empty-state__body">
+      You're not watching or holding any position right now.
+    </div>
+    <a class="empty-state__cta" href="/trade">Start a watch →</a>
+  </div>
+</div>
+
 <!-- ── Quick actions ─────────────────────────────────────────────────────── -->
 <div class="mb-4">
-  <div class="section-label">Quick Actions</div>
+  <div class="jump-heading">
+    <div class="section-label mb-0">Jump to</div>
+    <span class="page-subtitle" style="font-size:.76rem;">Common places to go from here</span>
+  </div>
   <div class="row g-3">
     <div class="col-6 col-md-3">
       <a href="/trade" class="action-card h-100">
@@ -172,8 +223,8 @@
               {% else %}<span class="badge-neutral">{{ t.exit_reason or "—" }}</span>
               {% endif %}
             </td>
-            <td class="text-end fw-bold {% if t.pnl >= 0 %}text-green{% else %}text-red{% endif %}">
-              {% if t.pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(t.pnl|float) }}
+            <td class="text-end {% if t.pnl >= 0 %}pnl-pos{% else %}pnl-neg{% endif %}">
+              {% if t.pnl >= 0 %}+{% else %}−{% endif %}₹{{ "%.0f"|format(t.pnl|float|abs) }}
             </td>
             <td class="text-end text-secondary small d-none d-md-table-cell">
               {{ t.exit_time[:16] if t.exit_time else "—" }}
@@ -194,21 +245,113 @@
 (function () {
   'use strict';
 
-  function _pnlColor(v) {
-    return v >= 0 ? 'var(--green)' : 'var(--red)';
-  }
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function _pnlColor(v) { return v >= 0 ? 'var(--green)' : 'var(--red)'; }
   function _fmt(v) {
     const n = parseFloat(v);
     return (n >= 0 ? '+' : '') + '₹' + Math.round(n).toLocaleString('en-IN');
   }
+  function _cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  // ── Sparkline (drawn once, no axes) ──────────────────────────────────────
+  const _sparkInstances = {};
+  function _drawSparkline(canvasId, values, color) {
+    const el = document.getElementById(canvasId);
+    if (!el || !values || !values.length || typeof Chart === 'undefined') return;
+    if (_sparkInstances[canvasId]) _sparkInstances[canvasId].destroy();
+    _sparkInstances[canvasId] = new Chart(el, {
+      type: 'line',
+      data: {
+        labels: values.map(function (_, i) { return i; }),
+        datasets: [{
+          data: values, borderColor: color, borderWidth: 1.5,
+          pointRadius: 0, fill: false, tension: 0.4
+        }]
+      },
+      options: {
+        animation: false,
+        plugins: { legend: { display: false } },
+        scales:  { x: { display: false }, y: { display: false } }
+      }
+    });
+  }
+
+  // ── Main intraday area chart ───────────────────────────────────────────────
+  let _mainChart = null;
+  function _drawMainChart(labels, closes) {
+    const el = document.getElementById('main-chart');
+    const emptyEl = document.getElementById('main-chart-empty');
+    if (!el || typeof Chart === 'undefined') return;
+    if (!labels || !labels.length) {
+      el.style.display = 'none';
+      if (emptyEl) emptyEl.classList.remove('d-none');
+      return;
+    }
+    el.style.display = '';
+    if (emptyEl) emptyEl.classList.add('d-none');
+    const ctx = el.getContext('2d');
+    const g   = ctx.createLinearGradient(0, 0, 0, 200);
+    g.addColorStop(0, 'rgba(124,58,237,0.28)');
+    g.addColorStop(1, 'rgba(124,58,237,0)');
+    if (_mainChart) _mainChart.destroy();
+    _mainChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: closes, borderColor: '#7C3AED',
+          backgroundColor: g, fill: true,
+          tension: 0.35, pointRadius: 0, borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: {
+            ticks: { maxTicksLimit: 8, color: _cssVar('--text-label') || '#555', font: { size: 10 } },
+            grid:  { color: 'rgba(255,255,255,0.04)' }
+          },
+          y: {
+            position: 'right',
+            ticks: { color: _cssVar('--text-label') || '#555', font: { size: 10 } },
+            grid:  { color: 'rgba(255,255,255,0.04)' }
+          }
+        }
+      }
+    });
+  }
+
+  function _loadChart(idx) {
+    fetch('/api/home/chart?index=' + idx)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d) _drawMainChart(d.labels, d.closes); })
+      .catch(function () {});
+  }
+
+  // Index chart switcher
+  document.querySelectorAll('#chart-idx-btns .inst-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#chart-idx-btns .inst-btn')
+        .forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById('main-chart-title').textContent = btn.dataset.idx;
+      _loadChart(btn.dataset.idx);
+    });
+  });
+
+  // ── Snapshot polling ──────────────────────────────────────────────────────
+  let _sparksDrawn = false;
 
   function _apply(data) {
     // Index prices
     const idx = data.indices || {};
-    for (const [name, ltp] of Object.entries(idx)) {
+    for (const name in idx) {
       const el = document.getElementById('idx-' + name);
-      if (el) el.textContent = ltp != null
-        ? parseFloat(ltp).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})
+      if (el) el.textContent = idx[name] != null
+        ? parseFloat(idx[name]).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})
         : '—';
     }
 
@@ -216,8 +359,8 @@
     const s = data.summary || {};
     const todayEl = document.getElementById('today-pnl');
     if (todayEl && s.today_pnl != null) {
-      todayEl.textContent  = _fmt(s.today_pnl);
-      todayEl.style.color  = _pnlColor(s.today_pnl);
+      todayEl.textContent = _fmt(s.today_pnl);
+      todayEl.style.color = _pnlColor(s.today_pnl);
     }
     const totalEl = document.getElementById('total-pnl');
     if (totalEl && s.pnl != null) {
@@ -235,11 +378,23 @@
     const pcEl = document.getElementById('positions-count');
     if (pcEl && data.open_count != null) {
       pcEl.textContent  = data.open_count;
-      pcEl.style.color  = data.open_count > 0 ? 'var(--blue)' : 'var(--text-primary)';
+      pcEl.style.color  = data.open_count > 0 ? 'var(--orange)' : 'var(--text-primary)';
+    }
+
+    // Sparklines — drawn once after first data arrives
+    if (!_sparksDrawn && s.pnl_series && s.pnl_series.length) {
+      _sparksDrawn = true;
+      const series   = s.pnl_series.slice().reverse(); // oldest first
+      const cumSum   = [];
+      let acc = 0;
+      series.forEach(function (v) { acc += v; cumSum.push(acc); });
+      _drawSparkline('spark-today',   series,  '#22C55E');
+      _drawSparkline('spark-alltime', cumSum,  '#7C3AED');
     }
 
     // Active trade card
-    const card = document.getElementById('active-trade-card');
+    const card      = document.getElementById('active-trade-card');
+    const emptyCard = document.getElementById('active-trade-empty');
     if (card) {
       if (data.active_trade) {
         const at = data.active_trade;
@@ -254,20 +409,23 @@
         document.getElementById('at-entry').textContent  = at.entry ? '₹' + at.entry : '—';
         document.getElementById('at-sl').textContent     = at.sl    ? '₹' + at.sl    : '—';
         card.classList.remove('d-none');
+        if (emptyCard) emptyCard.classList.add('d-none');
       } else {
         card.classList.add('d-none');
+        if (emptyCard) emptyCard.classList.remove('d-none');
       }
     }
   }
 
   function poll() {
     fetch('/api/home/snapshot')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) _apply(d); })
-      .catch(() => {});
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d) _apply(d); })
+      .catch(function () {});
   }
 
-  // Immediate first poll, then every 5 s
+  // Load chart + first snapshot immediately, then poll every 5 s
+  _loadChart('NIFTY');
   poll();
   setInterval(poll, 5000);
 })();

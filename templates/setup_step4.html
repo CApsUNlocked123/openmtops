@@ -6,31 +6,29 @@
 <div class="card">
   <div class="card-body p-4">
     <h5 class="fw-bold mb-1">Step 4 — Optional Settings</h5>
-    <p class="text-secondary small mb-3">These can be changed anytime from the Settings page.</p>
+    <p class="section-intro mb-3">Almost done. Both fields below are optional and can be changed anytime from the Settings page.</p>
 
     <form method="POST" action="/setup/step/4">
 
       <div class="mb-4">
-        <label class="form-label fw-semibold">Access PIN</label>
-        <input type="password" name="app_pin" class="form-control"
+        <label class="form-label-app fw-semibold" for="su4-pin">Access PIN</label>
+        <input type="password" id="su4-pin" name="app_pin" class="form-control"
                placeholder="4–8 digits (leave blank to disable)"
                inputmode="numeric" maxlength="8" autocomplete="new-password">
-        <div class="form-text text-secondary">
-          If set, a PIN is required on every browser session. Useful if the app is publicly accessible.
-        </div>
+        <p class="help-text">If set, a PIN is required on every browser session. Useful if the app is publicly accessible.</p>
       </div>
 
       <div class="mb-4">
-        <label class="form-label fw-semibold">Telegram Channel ID</label>
-        <input type="text" name="channel_id" class="form-control font-monospace"
+        <label class="form-label-app fw-semibold" for="su4-channel">Telegram Channel ID</label>
+        <input type="text" id="su4-channel" name="channel_id" class="form-control font-monospace"
                value="{{ default_channel }}" placeholder="-1001234567890">
-        <div class="form-text text-secondary">
+        <p class="help-text">
           Numeric ID of the Telegram group/channel to read tips from.
-          Use a tool like <code>@userinfobot</code> in Telegram to find a channel ID.
-        </div>
+          Use a tool like <code>@userinfobot</code> to find a channel ID.
+        </p>
       </div>
 
-      <button type="submit" class="btn btn-primary w-100">Finish Setup →</button>
+      <button type="submit" class="btn-primary-app w-100">Finish Setup →</button>
     </form>
   </div>
 </div>

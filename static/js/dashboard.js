@@ -398,9 +398,11 @@ function applySnapshot(data) {
     updateGreeksMomentum(data);
     updatePhaseTimeline(data.phases_per_candle ?? [], data.candles_chart ?? []);
     updatePhaseChart(data.candles_chart ?? [], data.ema_chart ?? [], data.phases_per_candle ?? []);
-    updateLinearScorecard(data.linear_score);
+    updateLinearScorecard(data.linear_score, data.day_character);
     updateLiveCandle(data.live_candle ?? null);
     updateSignalCard(data.signal ?? null);
+    // Spec v1.0 overlays: day char, ATR, confidence, dynamic levels, guards
+    updateSpecV1(data);
 
     const badge = document.getElementById("status-badge");
     if (badge) {
@@ -517,19 +519,29 @@ function updatePhaseTimeline(phasesPerCandle, candles) {
 }
 
 // ── Linear Move Scorecard ─────────────────────────────────────────────────────
-function updateLinearScorecard(ls) {
+const ENTER_THRESHOLD_BY_DAY = {
+    "TREND_DAY":    65,
+    "RANGE_DAY":    70,
+    "VOLATILE_DAY": 85,
+};
+
+function updateLinearScorecard(ls, dayCharacter) {
     if (!ls) return;
-    const score = ls.score ?? 0;
+    const score     = ls.score ?? 0;
+    const threshold = ENTER_THRESHOLD_BY_DAY[dayCharacter] ?? 70;
+
+    const thrEl = document.getElementById("enter-threshold");
+    if (thrEl) thrEl.textContent = threshold;
 
     const scoreEl = document.getElementById("linear-score");
     if (scoreEl) {
         scoreEl.textContent = score;
-        scoreEl.style.color = score >= 70 ? "#198754" : score >= 40 ? "#ffc107" : "#dc3545";
+        scoreEl.style.color = score >= threshold ? "#198754" : score >= 40 ? "#ffc107" : "#dc3545";
     }
 
     const banner = document.getElementById("move-banner");
     if (banner) {
-        const signal = ls.signal ?? (score >= 70 ? "ENTER" : score >= 40 ? "WAIT" : "AVOID");
+        const signal = ls.signal ?? (score >= threshold ? "ENTER" : score >= 40 ? "WAIT" : "AVOID");
         if (signal === "ENTER") {
             banner.className = "alert alert-success text-center fs-6 fw-bold mt-2 py-2";
         } else if (signal === "WAIT") {
@@ -693,6 +705,157 @@ function updateSignalCard(sig) {
         card.classList.remove("signal-flash");
         void card.offsetWidth;  // force reflow so animation restarts
         card.classList.add("signal-flash");
+    }
+}
+
+// ── Spec v1.0 overlays ────────────────────────────────────────────────────────
+// Renders day_character, ATR, confidence, dynamic levels and guard chips using
+// fields emitted by build_signal_output() on the snapshot.
+const DAY_CHAR_CLASS = {
+    "TREND_DAY":    "bg-success",
+    "RANGE_DAY":    "bg-secondary",
+    "VOLATILE_DAY": "bg-warning text-dark",
+};
+
+function _show(id, on) {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle("d-none", !on);
+}
+
+function updateSpecV1(data) {
+    // Reveal the signal card whenever we have spec v1 data to show, even
+    // if the legacy `signal` field was null (keeps confidence + guards
+    // visible while the market warms up).
+    const card = document.getElementById("signal-card");
+    if (card && (data.confidence || data.dynamic_levels || data.block_reason
+                 || data.late_entry || data.whipsaw_lockout)) {
+        card.classList.remove("d-none");
+    }
+
+    // ── Day character chip ────────────────────────────────────────────────
+    const dayChip  = document.getElementById("day-char-chip");
+    const dayLabel = document.getElementById("day-char-label");
+    const dayChar  = data.day_character;
+    if (dayChip && dayLabel) {
+        if (dayChar) {
+            dayChip.classList.remove("d-none", "bg-secondary", "bg-success", "bg-warning", "text-dark");
+            (DAY_CHAR_CLASS[dayChar] ?? "bg-secondary").split(" ").forEach(c => dayChip.classList.add(c));
+            dayChip.classList.add("badge");
+            dayLabel.textContent = dayChar.replace("_", " ");
+        } else {
+            dayChip.classList.add("d-none");
+        }
+    }
+
+    // ── ATR chip ──────────────────────────────────────────────────────────
+    const atrChip = document.getElementById("atr-chip");
+    const atrVal  = document.getElementById("atr-val");
+    if (atrChip && atrVal) {
+        if (data.atr != null) {
+            atrChip.classList.remove("d-none");
+            atrVal.textContent = Number(data.atr).toFixed(0);
+        } else {
+            atrChip.classList.add("d-none");
+        }
+    }
+
+    // ── Guard chips ───────────────────────────────────────────────────────
+    _show("late-entry-chip", !!data.late_entry);
+    _show("whipsaw-chip",    !!data.whipsaw_lockout);
+
+    // ── Confidence pill + bar ─────────────────────────────────────────────
+    const conf      = data.confidence ?? null;
+    const pill      = document.getElementById("confidence-pill");
+    const pillLabel = document.getElementById("confidence-label");
+    const barWrap   = document.getElementById("confidence-bar-wrap");
+    const bar       = document.getElementById("confidence-bar");
+    const pctText   = document.getElementById("confidence-pct-text");
+
+    if (conf && conf.total_factors > 0) {
+        if (pill && pillLabel) {
+            pill.classList.remove("d-none", "bg-success", "bg-warning", "bg-danger", "text-dark");
+            const mod = conf.modifier;
+            if (mod === "HIGH") {
+                pill.classList.add("bg-success");
+                pillLabel.textContent = `🟢 HIGH · ${conf.confidence_pct}%`;
+            } else if (mod === "LOW") {
+                pill.classList.add("bg-warning", "text-dark");
+                pillLabel.textContent = `🟡 LOW · ${conf.confidence_pct}%`;
+            } else {
+                pill.classList.add("bg-danger");
+                pillLabel.textContent = `🔴 CONTRADICT · ${conf.confidence_pct}%`;
+            }
+        }
+        if (barWrap && bar && pctText) {
+            barWrap.classList.remove("d-none");
+            bar.style.width = conf.confidence_pct + "%";
+            const color = conf.modifier === "HIGH" ? "#198754"
+                        : conf.modifier === "LOW"  ? "#ffc107" : "#dc3545";
+            bar.style.background = color;
+            pctText.textContent  = `${conf.confidence_pct}%  (${conf.factors_agree}/${conf.total_factors} factors)`;
+        }
+    } else {
+        if (pill)    pill.classList.add("d-none");
+        if (barWrap) barWrap.classList.add("d-none");
+    }
+
+    // ── Dynamic levels ────────────────────────────────────────────────────
+    const dl      = data.dynamic_levels;
+    const dlWrap  = document.getElementById("dynamic-levels-wrap");
+    const t3Wrap  = document.getElementById("dl-t3-wrap");
+    const trailEl = document.getElementById("dl-trail-chip");
+    if (dlWrap) {
+        if (dl) {
+            dlWrap.classList.remove("d-none");
+            setText("dl-sl", dl.sl != null ? dl.sl.toFixed(2) : "—");
+            setText("dl-t1", dl.t1 != null ? dl.t1.toFixed(2) : "—");
+            setText("dl-t2", dl.t2 != null ? dl.t2.toFixed(2) : "—");
+            setText("dl-rr", `1 : ${dl.rr_t1 ?? "—"}`);
+            if (dl.t3 != null) {
+                if (t3Wrap) t3Wrap.classList.remove("d-none");
+                setText("dl-t3", dl.t3.toFixed(2));
+            } else if (t3Wrap) {
+                t3Wrap.classList.add("d-none");
+            }
+            if (trailEl) trailEl.classList.toggle("d-none", !dl.trail_after_t2);
+        } else {
+            dlWrap.classList.add("d-none");
+        }
+    }
+
+    // ── Block reason ──────────────────────────────────────────────────────
+    const brWrap = document.getElementById("block-reason-wrap");
+    const brText = document.getElementById("block-reason-text");
+    if (brWrap && brText) {
+        if (data.block_reason) {
+            brWrap.classList.remove("d-none");
+            brText.textContent = data.block_reason;
+        } else {
+            brWrap.classList.add("d-none");
+        }
+    }
+
+    // ── Final signal: stamp the existing action badge so it's visible even
+    //     when the legacy signal_engine returns WAIT. Only upgrade the badge
+    //     to ENTER_HIGH/ENTER_LOW — don't overwrite NO_TRADE/BUY paths.
+    const finalSig = data.final_signal;
+    const badge    = document.getElementById("signal-action-badge");
+    if (badge && finalSig && (finalSig === "ENTER_HIGH" || finalSig === "ENTER_LOW")) {
+        // Only enhance when the legacy badge isn't already showing BUY
+        const txt = (badge.textContent || "").toUpperCase();
+        if (!txt.includes("BUY")) {
+            const card = document.getElementById("signal-card");
+            if (card) {
+                card.classList.remove("d-none", "border-danger", "border-warning", "border-secondary");
+                card.classList.add("border-success");
+            }
+            badge.classList.remove("bg-danger", "bg-warning", "bg-secondary", "text-dark");
+            badge.classList.add("bg-success");
+            const dir = data.signal_direction === "SHORT" ? "PE" : "CE";
+            badge.textContent = finalSig === "ENTER_HIGH"
+                ? `📈 ENTER ${dir} · HIGH`
+                : `📈 ENTER ${dir} · LOW`;
+        }
     }
 }
 

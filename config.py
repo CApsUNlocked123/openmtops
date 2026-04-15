@@ -21,3 +21,4 @@ DHAN_APISECRET   = _cfg("dhan.api_secret") or os.getenv("DHAN_APISECRET","")
 # ── Strategy Dashboard state ───────────────────────────────────────────────────
 PCR_SERIES: list = []   # rolling PCR readings for trend health (capped at 100)
 PHASE_LOG: list  = []   # [{phase, start_time, end_time}] — reset each trading day
+REGIME_HISTORY: dict = {}   # {instrument: [regime, ...]} — for whipsaw detection

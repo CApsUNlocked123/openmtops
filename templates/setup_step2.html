@@ -6,40 +6,46 @@
 <div class="card">
   <div class="card-body p-4">
     <h5 class="fw-bold mb-1">Step 2 — Telegram Sign-in</h5>
-    <p class="text-secondary small mb-3">
-      Authenticate your Telegram account so OpenMTOps can read tips from your channel.
+    <p class="section-intro mb-3">
+      Authenticate your Telegram account so OpenMTOps can read tips from your channel. You'll receive a one-time code on your phone.
     </p>
+
+    <div class="step-pill-row mb-3" aria-label="Sign-in progress">
+      <span class="step-pill {% if tg_step == 'phone' %}step-pill--active{% else %}step-pill--done{% endif %}">1. Phone</span>
+      <span class="step-pill {% if tg_step == 'code' %}step-pill--active{% elif tg_step == 'password' %}step-pill--done{% endif %}">2. OTP</span>
+      <span class="step-pill {% if tg_step == 'password' %}step-pill--active{% endif %}">3. 2FA</span>
+    </div>
 
     {% if tg_step == "phone" %}
     <form method="POST" action="/setup/tg/phone">
       <div class="mb-3">
-        <label class="form-label fw-semibold">Phone number (with country code)</label>
-        <input type="tel" name="phone" class="form-control" placeholder="+91 98765 43210"
+        <label class="form-label-app fw-semibold" for="su2-phone">Phone number (with country code)</label>
+        <input type="tel" id="su2-phone" name="phone" class="form-control" placeholder="+91 98765 43210"
                autofocus required>
-        <div class="form-text text-secondary">We'll send a verification code via Telegram.</div>
+        <p class="help-text">We'll send a verification code via Telegram.</p>
       </div>
-      <button type="submit" class="btn btn-primary w-100">Send Code →</button>
+      <button type="submit" class="btn-primary-app w-100">Send Code →</button>
     </form>
 
     {% elif tg_step == "code" %}
     <form method="POST" action="/setup/tg/code">
       <div class="mb-3">
-        <label class="form-label fw-semibold">Verification code</label>
-        <input type="text" name="code" class="form-control text-center font-monospace"
+        <label class="form-label-app fw-semibold" for="su2-code">Verification code</label>
+        <input type="text" id="su2-code" name="code" class="form-control text-center font-monospace"
                placeholder="12345" inputmode="numeric" maxlength="10" autofocus required>
-        <div class="form-text text-secondary">Check your Telegram app for the code.</div>
+        <p class="help-text">Check your Telegram app for the code.</p>
       </div>
-      <button type="submit" class="btn btn-primary w-100">Verify →</button>
+      <button type="submit" class="btn-primary-app w-100">Verify →</button>
     </form>
 
     {% elif tg_step == "password" %}
     <form method="POST" action="/setup/tg/2fa">
       <div class="mb-3">
-        <label class="form-label fw-semibold">2-FA Password</label>
-        <input type="password" name="password" class="form-control"
+        <label class="form-label-app fw-semibold" for="su2-pw">2-FA Password</label>
+        <input type="password" id="su2-pw" name="password" class="form-control"
                placeholder="Your Telegram 2-FA password" autofocus required>
       </div>
-      <button type="submit" class="btn btn-primary w-100">Sign in →</button>
+      <button type="submit" class="btn-primary-app w-100">Sign in →</button>
     </form>
     {% endif %}
 

@@ -6,15 +6,18 @@
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h3 class="fw-bold mb-0">🔬 Option Analyzer</h3>
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h3 class="fw-bold mb-1">🔬 Option Analyzer</h3>
+    <p class="page-subtitle mb-0">Inspect the option chain for a given index and expiry. Feeds LTP, greeks, and OI live.</p>
+  </div>
   <div class="d-flex gap-2">
     {% if subscribed_sids %}
     <form method="post" action="/analyzer/stop">
-      <button type="submit" class="btn btn-outline-danger btn-sm">■ Stop Feed</button>
+      <button type="submit" class="btn-danger-app btn-sm">■ Stop Feed</button>
     </form>
     {% endif %}
-    <a href="/" class="btn btn-outline-secondary btn-sm">← Home</a>
+    <a href="/" class="btn-ghost-app btn-sm">← Home</a>
   </div>
 </div>
 <hr class="border-secondary">

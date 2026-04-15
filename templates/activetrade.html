@@ -3,19 +3,14 @@
 
 {% block head %}
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-/* ── Full-height split layout ─────────────────────────────────────────────── */
-/* Remove base container padding so the split fills the viewport              */
-.container-fluid.py-4 {
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-  padding-left: 0 !important;
-  padding-right: 0 !important;
+/* ── Full-height split layout (sidebar replaces top nav, so 100vh not 100vh-56px) */
+#main-content {
+  padding: 0 !important;
+  height: 100vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 56px);
-  overflow: hidden;
 }
 
 .at-split {
@@ -43,6 +38,14 @@
   background: rgba(0,0,0,0.18);
 }
 
+/* Mobile: panels stack vertically */
+@media (max-width: 991px) {
+  #main-content { height: auto; min-height: 100vh; overflow-y: auto; padding-top: 44px !important; }
+  .at-split     { flex-direction: column; min-height: unset; overflow: visible; }
+  .at-left      { width: 100%; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .at-right     { width: 100%; }
+}
+
 /* ── Dashboard styles (mirror dashboard.html) ─────────────────────────────── */
 .regime-sub { font-size: 0.82rem; opacity: 0.85; }
 .kpi-card   { border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 10px 12px; }
@@ -66,10 +69,39 @@
 /* ── Compact live trade panel ─────────────────────────────────────────────── */
 .lp-title  { font-size: 0.88rem; font-weight: 700; }
 .lp-meta   { font-size: 0.68rem; color: #adb5bd; }
-.lp-card   { border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 7px 9px; margin-bottom: 0.4rem; }
-.lp-label  { font-size: 0.65rem; text-transform: uppercase; letter-spacing: .04em; color: #adb5bd; }
+.lp-label  { font-size: 0.62rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-label, #adb5bd); margin-bottom: 2px; }
 .lp-value  { font-size: 1rem; font-weight: 700; line-height: 1.2; }
-.lp-banner { font-size: 0.75rem; padding: 0.35rem 0.5rem; margin-bottom: 0.5rem; }
+
+/* ── Right panel: state alert overrides + pulse dot ──────────────────────── */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+.at-right .alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm, 8px);
+  margin-bottom: 10px;
+  transition: background 0.3s, border-color 0.3s;
+}
+.at-right .alert::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+  opacity: 0.85;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.at-right .alert-info    { border-color: var(--purple-border) !important; background: var(--purple-bg) !important; color: var(--purple) !important; }
+.at-right .alert-success { border-color: var(--green-border)  !important; background: var(--green-bg)  !important; color: var(--green)  !important; }
+.at-right .alert-danger  { border-color: var(--red-border)    !important; background: var(--red-bg)    !important; color: var(--red)    !important; }
+.at-right .alert-warning { border-color: rgba(245,158,11,.35) !important; background: rgba(245,158,11,.08) !important; color: var(--yellow) !important; }
 </style>
 {% endblock %}
 
@@ -86,26 +118,40 @@
   <div class="at-left">
 
     <!-- Controls ─────────────────────────────────────────────────────────── -->
-    <div class="d-flex align-items-center gap-3 mb-3">
-      <h5 class="fw-bold mb-0">🧠 Strategy Dashboard</h5>
-      <select id="instrument-sel" class="form-select form-select-sm w-auto">
-        {% for name in instruments %}
-          <option value="{{ name }}">{{ name }}</option>
-        {% endfor %}
-      </select>
-      <span id="status-badge" class="badge bg-secondary fs-6 px-3">Loading…</span>
-      <span id="live-candle-info" class="badge bg-warning text-dark d-none ms-2"></span>
-      <small class="text-secondary ms-auto">Snapshot 5s · OI 30s</small>
+    <div class="mb-3">
+      <div class="d-flex align-items-center gap-3">
+        <h5 class="fw-bold mb-0">🧠 Market context</h5>
+        <select id="instrument-sel" class="form-select form-select-sm w-auto" aria-label="Select instrument">
+          {% for name in instruments %}
+            <option value="{{ name }}">{{ name }}</option>
+          {% endfor %}
+        </select>
+        <span id="status-badge" class="badge bg-secondary fs-6 px-3">Loading…</span>
+        <span id="live-candle-info" class="badge bg-warning text-dark d-none ms-2"></span>
+        <small class="text-secondary ms-auto">Snapshot 5s · OI 30s</small>
+      </div>
+      <p class="page-subtitle mt-1 mb-0" style="font-size:.78rem;">Strategy signals, regime, and Greeks — auto-refreshing while the market is open.</p>
     </div>
 
     <!-- Panel 1: Regime Banner ───────────────────────────────────────────── -->
     <div id="regime-banner" class="alert alert-secondary fw-bold text-center fs-5 py-2 mb-3">
-      <div id="regime-label">Waiting for data…</div>
+      <div id="regime-label">Waiting for data… <span class="page-subtitle" style="font-size:.75rem;font-weight:400;display:block;margin-top:4px;">Feed warms up on first tick — typically within ~30 seconds of market open.</span></div>
       <div class="regime-sub d-flex justify-content-center gap-4 mt-1">
         <span>Phase: <strong id="phase-label">—</strong></span>
         <span>Velocity: <strong id="velocity-label">—</strong></span>
         <span>Spot: <strong id="spot-price">—</strong></span>
         <span>Candles: <strong id="candle-count">—</strong></span>
+      </div>
+      <!-- Spec v1.0 meta row: day character + ATR + guard chips -->
+      <div class="regime-sub d-flex justify-content-center align-items-center flex-wrap gap-2 mt-2" style="font-size:.72rem;font-weight:600;">
+        <span id="day-char-chip" class="badge bg-secondary d-none">
+          <span id="day-char-label">—</span><details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Day character set after 9:45 AM from the first 6 candles. TREND_DAY loosens ENTER threshold; VOLATILE_DAY tightens it.</span></details>
+        </span>
+        <span id="atr-chip" class="badge bg-secondary d-none">
+          ATR <span id="atr-val">—</span> pts<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Average True Range (14 bars). Dynamic SL and targets are expressed as multiples of ATR so they adapt to current volatility.</span></details>
+        </span>
+        <span id="late-entry-chip" class="badge bg-warning text-dark d-none">⚠ Late entry</span>
+        <span id="whipsaw-chip" class="badge bg-danger d-none">⚠ Whipsaw lockout</span>
       </div>
     </div>
 
@@ -114,6 +160,11 @@
       <div class="card-body py-2 px-3">
         <div class="d-flex align-items-center gap-3 flex-wrap">
           <span id="signal-action-badge" class="badge fs-6 px-3 py-2"></span>
+          <!-- Spec v1.0: confidence pill (HIGH/LOW/CONTRADICT) -->
+          <span id="confidence-pill" class="badge d-none" style="font-size:0.72rem;">
+            <span id="confidence-label">—</span>
+            <details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Share of independent factors (regime, phase, velocity, PCR, OI, EMA15m, volume, time) that agree with the trade direction.</span></details>
+          </span>
           <div id="signal-levels" class="d-none">
             <span class="fw-bold" id="signal-symbol" style="font-size:1.05rem;"></span>
             <span class="ms-3 text-secondary small">Entry</span>
@@ -128,6 +179,34 @@
             <span id="signal-time"></span>
           </div>
         </div>
+        <!-- Spec v1.0: confidence bar -->
+        <div id="confidence-bar-wrap" class="d-none mt-2">
+          <div class="d-flex justify-content-between small mb-1" style="font-size:0.68rem;">
+            <span class="text-secondary">Signal confidence</span>
+            <span id="confidence-pct-text" class="fw-semibold">—</span>
+          </div>
+          <div style="background:rgba(255,255,255,.07);border-radius:4px;height:6px;overflow:hidden;">
+            <div id="confidence-bar" style="width:0%;height:100%;background:#198754;transition:width .4s;"></div>
+          </div>
+        </div>
+        <!-- Spec v1.0: dynamic levels (ATR-based SL / T1 / T2 / T3) -->
+        <div id="dynamic-levels-wrap" class="d-none mt-2" style="font-size:0.76rem;">
+          <div class="d-flex align-items-center flex-wrap gap-3">
+            <span class="text-secondary">
+              <details class="tip" style="display:inline-block;"><summary aria-label="Help">Dynamic levels ?</summary><span class="tip__bubble">SL and targets computed from ATR × phase/day multipliers. Replaces fixed SLs that ignore volatility.</span></details>
+            </span>
+            <span>SL <strong id="dl-sl" class="text-danger">—</strong></span>
+            <span>T1 <strong id="dl-t1" class="text-success">—</strong></span>
+            <span>T2 <strong id="dl-t2" class="text-success">—</strong></span>
+            <span id="dl-t3-wrap" class="d-none">T3 <strong id="dl-t3" class="text-success">—</strong></span>
+            <span>R:R <strong id="dl-rr">—</strong></span>
+            <span id="dl-trail-chip" class="badge bg-info text-dark d-none">ATR trail after T2</span>
+          </div>
+        </div>
+        <!-- Spec v1.0: block reason (late entry / whipsaw / R:R / contradict) -->
+        <div id="block-reason-wrap" class="d-none mt-2 small text-warning" style="font-size:0.76rem;">
+          🚫 <span id="block-reason-text"></span>
+        </div>
         <div id="signal-counter-wrap" class="d-none mt-2">
           <div class="text-warning small fw-semibold mb-1">⚠ Why no trade:</div>
           <ul id="signal-counter-list" class="mb-0 small text-warning" style="padding-left:1.2rem;"></ul>
@@ -140,7 +219,7 @@
 
       <div class="col-md-7">
         <div class="card border-secondary h-100">
-          <div class="card-header fw-semibold border-secondary">📊 OI Battlefield</div>
+          <div class="card-header fw-semibold border-secondary">📊 OI Battlefield<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Open-Interest walls around spot: red = call resistance, green = put support. Tracks where big money is parked.</span></details></div>
           <div class="card-body d-flex flex-column" style="min-height:0; flex:1;">
             <div id="oi-unavailable" class="text-secondary text-center py-4">
               OI Tracker not running — start it from Analyzer to enable this panel.
@@ -175,7 +254,7 @@
 
       <div class="col-md-5">
         <div class="card border-secondary h-100">
-          <div class="card-header fw-semibold border-secondary">⚡ Greeks Momentum</div>
+          <div class="card-header fw-semibold border-secondary">⚡ Greeks Momentum<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Rate of change in call/put Open Interest. Strong positive skew on one side hints at directional conviction.</span></details></div>
           <div class="card-body d-flex flex-column gap-2">
             <div class="row g-2">
               <div class="col-6">
@@ -224,7 +303,7 @@
 
     <!-- Panel 4: Phase Timeline ──────────────────────────────────────────── -->
     <div class="card border-secondary mb-3">
-      <div class="card-header fw-semibold border-secondary">⏱ Phase Timeline (today)</div>
+      <div class="card-header fw-semibold border-secondary">⏱ Phase Timeline (today)<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Intraday phases — BASE (ranging), BREAKOUT (expansion), TREND (directional), EXHAUSTION (running out of steam), REVERSAL (turning).</span></details></div>
       <div class="card-body p-2">
         <div style="position:relative; height:180px;" class="mb-2">
           <canvas id="phase-chart"></canvas>
@@ -245,13 +324,17 @@
 
     <!-- Panel 5: Linear Move Scorecard ──────────────────────────────────── -->
     <div class="card border-secondary mb-3">
-      <div class="card-header fw-semibold border-secondary">📐 Linear Move Scorecard</div>
+      <div class="card-header fw-semibold border-secondary">📐 Linear Move Scorecard<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">0–100 score: how cleanly the market is trending (vs. choppy). Combines EMA slope, OI build, PCR trend, IV direction, candle structure, and volume.</span></details></div>
       <div class="card-body">
         <div class="row align-items-center g-3">
           <div class="col-md-3 text-center">
             <div id="linear-score" class="display-3 fw-bold">—</div>
             <div class="text-secondary small">/ 100</div>
             <div id="move-banner" class="alert alert-secondary text-center fs-6 fw-bold mt-2 py-2">WAIT</div>
+            <div class="text-secondary" style="font-size:0.68rem;margin-top:4px;">
+              ENTER ≥ <span id="enter-threshold" class="fw-semibold">70</span>
+              <details class="tip" style="display:inline-block;"><summary aria-label="Help">?</summary><span class="tip__bubble">ENTER threshold adapts to day character: TREND_DAY = 65, RANGE_DAY = 70, VOLATILE_DAY = 85.</span></details>
+            </div>
           </div>
           <div class="col-md-9">
             <table class="table table-sm table-borderless mb-0" style="color:inherit;">
@@ -302,181 +385,258 @@
        ═══════════════════════════════════════════════════════════════════════ -->
   <div class="at-right">
 
-    <!-- Mode chip ────────────────────────────────────────────────────────── -->
-    <div class="d-flex gap-2 mb-3">
-      <span class="badge-buy" style="cursor:default; font-size:0.72rem;">● Single Leg</span>
-      <span class="badge-neutral" style="opacity:0.45; cursor:not-allowed; font-size:0.72rem;"
-            title="Coming soon">○ Hedge</span>
+    <!-- Mode toggle ─────────────────────────────────────────────────────── -->
+    <div class="mode-toggle">
+      <span class="mode-chip active">● Single Leg</span>
+      <span class="mode-chip soon" title="Coming soon">○ Hedge</span>
     </div>
 
     {% if trade and trade.security_id %}
 
     <!-- Symbol header ────────────────────────────────────────────────────── -->
-    <div class="mb-2 pb-2 border-bottom border-secondary">
-      <div class="d-flex align-items-start justify-content-between gap-1">
-        <div>
-          <div class="lp-title">📡 {{ trade.trading_symbol }}</div>
-          <div class="lp-meta">
-            ID: <code>{{ trade.security_id }}</code><br>
-            Lots: <strong>{{ trade.lots }}</strong> &nbsp;|&nbsp; Qty: <strong>{{ trade.quantity }}</strong>
-          </div>
-        </div>
-        {% if trade.state not in ('active', 'ordering', 'exiting', 'exiting_guard') %}
-        <form method="post" action="/activetrade/cancel" class="flex-shrink-0">
-          <button type="submit" class="btn btn-outline-secondary btn-sm" style="font-size:0.68rem; padding:2px 7px;"
-                  title="Cancel watch and reset state">✕ End</button>
-        </form>
-        {% endif %}
+    <div class="mb-3 pb-2 text-center" style="border-bottom:1px solid var(--border);">
+      <div class="lp-title">📡 {{ trade.trading_symbol }}</div>
+      <div class="lp-meta mt-1" style="line-height:1.8;">
+        <code style="font-size:0.60rem;color:var(--text-secondary);">{{ trade.security_id }}</code>
+        <span style="margin:0 5px;opacity:0.35;">·</span>
+        <strong>{{ trade.lots }}</strong> lots
+        <span style="margin:0 5px;opacity:0.35;">·</span>
+        <strong>{{ trade.quantity }}</strong> qty
       </div>
     </div>
 
     <!-- Feed status ──────────────────────────────────────────────────────── -->
-    <div id="feed-status" class="mb-2">
-      <span class="badge bg-warning text-dark" style="font-size:0.68rem;">Connecting…</span>
+    <div id="feed-status" class="mb-2 text-center">
+      <span class="badge bg-warning text-dark" style="font-size:0.67rem;">Connecting…</span>
     </div>
 
-    <!-- State banner ─────────────────────────────────────────────────────── -->
-    <div id="state-banner" class="alert alert-info lp-banner" role="alert">
+    <!-- State banner (live.js sets alert-info/success/danger/warning class) -->
+    <div id="state-banner" class="alert alert-info" role="alert">
       <span id="state-text">Watching — waiting for entry zone…</span>
     </div>
 
     <!-- Live metrics 2×2 ─────────────────────────────────────────────────── -->
     <div class="row g-1 mb-2">
       <div class="col-6">
-        <div class="lp-card">
+        <div class="stat-card stat-card-accent accent-blue" style="padding:9px 11px;">
           <div class="lp-label">LTP</div>
           <div class="lp-value" id="ltp-val">—</div>
         </div>
       </div>
       <div class="col-6">
-        <div class="lp-card">
-          <div class="lp-label">Entry Trigger</div>
-          <div class="lp-value text-info">₹{{ trade.entry }}</div>
+        <div class="stat-card stat-card-accent accent-blue" style="padding:9px 11px;">
+          <div class="lp-label">Entry above</div>
+          <div class="lp-value" style="color:var(--blue);">₹{{ trade.entry }}</div>
         </div>
       </div>
       <div class="col-6">
-        <div class="lp-card">
+        <div class="stat-card stat-card-accent accent-red" style="padding:9px 11px;">
           <div class="lp-label">Stop Loss</div>
-          <div class="lp-value text-danger">₹{{ trade.sl if trade.sl else '—' }}</div>
+          <div class="lp-value" style="color:var(--red);">₹{{ trade.sl if trade.sl else '—' }}</div>
         </div>
       </div>
       <div class="col-6">
-        <div class="lp-card">
-          <div class="lp-label">Target</div>
-          <div class="lp-value text-success">
+        <div class="stat-card stat-card-accent accent-green" style="padding:9px 11px;">
+          <div class="lp-label">Target 1</div>
+          <div class="lp-value" style="color:var(--green);">
             {% if trade.targets %}₹{{ trade.targets[0] }}{% else %}—{% endif %}
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Buy zone ─────────────────────────────────────────────────────────── -->
-    {% if trade.targets %}
-    {% set buy_mid = (trade.entry + trade.targets[0]) / 2 %}
-    <div class="lp-card">
-      <div class="lp-label">Buy Zone &lt;</div>
-      <div class="lp-value text-info">₹{{ "%.2f" | format(buy_mid) }}</div>
+    <!-- Static R:R bar from trade values ─────────────────────────────────── -->
+    {% if trade.sl and trade.entry and trade.targets %}
+    {% set risk_pts   = (trade.entry - trade.sl)|abs %}
+    {% set reward_pts = (trade.targets[0] - trade.entry)|abs %}
+    {% set total_pts  = risk_pts + reward_pts %}
+    {% set risk_pct   = ((risk_pts / total_pts * 100)|round(1)) if total_pts > 0 else 34 %}
+    {% set reward_pct = ((reward_pts / total_pts * 100)|round(1)) if total_pts > 0 else 66 %}
+    <div class="mb-2" style="background:var(--bg-card-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;">
+      <div style="display:flex;justify-content:space-between;font-size:0.60rem;color:var(--text-label);margin-bottom:4px;">
+        <span>SL ₹{{ trade.sl }}</span>
+        <span style="color:var(--text-secondary);font-weight:700;">
+          {% if risk_pts > 0 %}{{ "%.1f"|format(reward_pts / risk_pts) }}:1 R:R{% else %}R:R{% endif %}
+        </span>
+        <span>T1 ₹{{ trade.targets[0] }}</span>
+      </div>
+      <div class="trade-rr-track">
+        <div class="trade-rr-risk"   style="width:{{ risk_pct }}%;"></div>
+        <div class="trade-rr-entry"></div>
+        <div class="trade-rr-reward" style="width:{{ reward_pct }}%;"></div>
+      </div>
     </div>
+
+    <!-- End watch (always available; label reflects state) -->
+    {% if trade.state not in ('exiting', 'exiting_guard') %}
+    <form method="post" action="/activetrade/cancel" class="mb-3">
+      <button type="submit" class="btn-exit w-100" style="font-size:0.80rem;">
+        {% if trade.state in ('active', 'ordering') %}🚪 Force Exit{% else %}✕ End Watch{% endif %}
+      </button>
+    </form>
+    {% endif %}
     {% endif %}
 
-    <!-- Active section (hidden until position open) ──────────────────────── -->
-    <div id="active-section" class="d-none mt-2">
-      <hr class="border-secondary my-2">
+    <!-- Active section (hidden until position opens; visible if already active on load) -->
+    <div id="active-section" class="mt-2{% if trade.state not in ('active', 'ordering', 'exiting', 'exiting_guard') %} d-none{% endif %}">
+      <div style="height:1px;background:var(--border);margin:4px 0 10px;"></div>
       <div class="row g-1 mb-2">
         <div class="col-6">
-          <div class="lp-card">
+          <div class="stat-card stat-card-accent accent-orange" style="padding:9px 11px;">
             <div class="lp-label">Buy Price</div>
             <div class="lp-value" id="buy-price-val">—</div>
           </div>
         </div>
         <div class="col-6">
-          <div class="lp-card">
+          <div class="stat-card stat-card-accent accent-green" style="padding:9px 11px;">
             <div class="lp-label">P&amp;L</div>
             <div class="lp-value" id="pnl-val">—</div>
           </div>
         </div>
       </div>
-      <div class="lp-card mb-2" style="font-size:0.7rem;">
+
+      <div class="mb-2" style="background:var(--bg-card-raised);border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px;font-size:0.68rem;">
         <div class="lp-label">Order ID</div>
-        <div id="order-id-val" class="fw-semibold text-truncate" style="max-width:100%;">—</div>
+        <div id="order-id-val" class="fw-semibold text-truncate">—</div>
       </div>
 
-      <!-- Progress bar ───────────────────────────────────────────────────── -->
-      <div class="mb-2" id="progress-wrap">
-        <div class="d-flex justify-content-between mb-1" style="font-size:0.62rem; color:#adb5bd;">
+      <!-- Progress bar (Entry → Target) ─────────────────────────────────── -->
+      <div class="mb-3" id="progress-wrap">
+        <div style="display:flex;justify-content:space-between;font-size:0.60rem;color:var(--text-label);margin-bottom:4px;">
           <span>Entry ₹{{ trade.entry }}</span>
           {% if trade.targets %}<span>T1 ₹{{ trade.targets[0] }}</span>{% endif %}
         </div>
-        <div class="progress" style="height:6px;">
-          <div class="progress-bar bg-success" id="progress-bar" role="progressbar" style="width:0%"></div>
+        <div style="height:5px;background:rgba(255,255,255,0.06);border-radius:999px;overflow:hidden;">
+          <div id="progress-bar" style="width:0%;height:100%;background:var(--green);border-radius:999px;transition:width .4s;"></div>
         </div>
       </div>
 
       <!-- Manual exit ────────────────────────────────────────────────────── -->
       <form method="post" action="/activetrade/exit" id="exit-form">
         <input type="hidden" name="ltp" id="exit-ltp-input" value="0">
-        <button type="submit" class="btn btn-danger w-100 btn-sm">🚪 Exit Position</button>
+        <button type="submit" class="btn-exit">🚪 Exit Position</button>
       </form>
     </div>
 
     {% else %}
 
-    <!-- Inline setup form (no active trade) ─────────────────────────────── -->
+    <!-- ── SETUP FORM (no active trade) ──────────────────────────────────── -->
+    <div class="mb-3">
+      <div class="lp-title" style="font-size:.95rem;">Set up a watch</div>
+      <p class="section-intro mt-1 mb-0">
+        We'll monitor price and enter automatically when your trigger is hit.
+      </p>
+    </div>
+
     <form method="post" action="/trade/setup" id="setup-form">
-      <div class="lp-meta mb-3" style="font-size:0.72rem;">No active trade — set one up below.</div>
+
+      <!-- ── Instrument &amp; Option ──────────────────────────────────── -->
+      <div class="section-divider--label">Instrument &amp; Option</div>
 
       <div class="mb-2">
-        <label class="lp-label">Instrument</label>
-        <select name="instrument" class="form-select form-select-sm">
+        <label class="tf-label" for="at-instrument">Instrument</label>
+        <select id="at-instrument" name="instrument" class="form-select form-select-sm"
+                style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary);font-size:0.85rem;">
           {% for name in instruments %}<option>{{ name }}</option>{% endfor %}
         </select>
       </div>
 
-      <div class="row g-1 mb-2">
+      <div class="row g-2 mb-2">
         <div class="col-7">
-          <label class="lp-label">Strike</label>
-          <input type="number" name="strike" class="form-control form-control-sm"
-                 placeholder="e.g. 25100" required>
+          <label class="tf-label" for="at-strike">Strike</label>
+          <div class="tf-input-wrap tf-entry">
+            <div class="tf-accent"></div>
+            <input id="at-strike" type="number" name="strike" class="tf-input" placeholder="25100" required>
+          </div>
         </div>
         <div class="col-5">
-          <label class="lp-label">Type</label>
-          <select name="option_type" class="form-select form-select-sm">
+          <label class="tf-label" for="at-type">Type</label>
+          <select id="at-type" name="option_type" class="form-select form-select-sm"
+                  style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary);font-size:0.85rem;">
             <option>CE</option><option>PE</option>
           </select>
         </div>
       </div>
 
-      <div class="mb-2">
-        <label class="lp-label">Entry ₹</label>
-        <input type="number" name="entry" class="form-control form-control-sm"
-               placeholder="0.00" step="0.05" required>
+      <!-- ── Entry trigger ──────────────────────────────────────────── -->
+      <div class="section-divider--label">Entry trigger<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">We'll place a buy order as soon as the option's LTP crosses this level.</span></details></div>
+
+      <div class="tf-group tf-entry mb-1">
+        <label class="tf-label" for="tf-entry">Entry above</label>
+        <div class="tf-input-wrap">
+          <div class="tf-accent"></div>
+          <span class="tf-prefix">₹</span>
+          <input type="number" name="entry" id="tf-entry" class="tf-input"
+                 placeholder="0.00" step="0.05" required>
+        </div>
+        <p class="help-text">We'll buy when price crosses this level.</p>
       </div>
 
-      <div class="mb-2">
-        <label class="lp-label">Stop Loss ₹</label>
-        <input type="number" name="sl" class="form-control form-control-sm"
-               placeholder="0.00" step="0.05">
+      <!-- ── Risk ──────────────────────────────────────────────────── -->
+      <div class="section-divider--label">Risk</div>
+
+      <div class="tf-group tf-sl mb-1">
+        <label class="tf-label" for="tf-sl">Stop Loss</label>
+        <div class="tf-input-wrap">
+          <div class="tf-accent"></div>
+          <span class="tf-prefix">₹</span>
+          <input type="number" name="sl" id="tf-sl" class="tf-input"
+                 placeholder="0.00" step="0.05">
+        </div>
+        <p class="help-text">We'll exit if price falls to this.</p>
       </div>
 
-      <div class="mb-2">
-        <label class="lp-label">Targets ₹ (comma-separated)</label>
-        <input type="text" name="targets" class="form-control form-control-sm"
-               placeholder="e.g. 150, 175" required>
+      <!-- ── Targets ───────────────────────────────────────────────── -->
+      <div class="section-divider--label">Targets</div>
+
+      <div class="tf-group tf-target mb-2">
+        <label class="tf-label" for="tf-target">Targets (comma-separated)</label>
+        <div class="tf-input-wrap">
+          <div class="tf-accent"></div>
+          <span class="tf-prefix">₹</span>
+          <input type="text" name="targets" id="tf-target" class="tf-input"
+                 placeholder="150, 175" required>
+        </div>
+        <p class="help-text">We exit at each in turn as they're hit.</p>
       </div>
 
-      <div class="mb-3">
-        <label class="lp-label">Lots (blank = auto)</label>
-        <input type="number" name="lots_manual" class="form-control form-control-sm"
-               min="1" max="20" placeholder="auto">
+      <!-- R:R preview (shown when entry + sl + target are filled) -->
+      <div class="rr-box" id="rr-box" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.68rem;color:var(--text-label);margin-bottom:4px;">
+          <span id="rr-risk-val">Risk —</span>
+          <span class="rr-preview" id="rr-ratio">R:R —</span>
+          <span id="rr-reward-val">Reward —</span>
+        </div>
+        <div class="rr-track">
+          <div class="rr-risk"   id="rr-risk-bar"   style="width:33%;"></div>
+          <div class="rr-sep"></div>
+          <div class="rr-reward" id="rr-reward-bar" style="width:67%;"></div>
+        </div>
+        <p class="help-text" style="margin-top:6px;">
+          Reward ÷ Risk. Higher is better — 2:1 means potential reward is twice the risk.
+        </p>
       </div>
 
-      <button type="submit" class="btn btn-success w-100 btn-sm">▶ Start Watching</button>
+      <!-- ── Size ──────────────────────────────────────────────────── -->
+      <div class="section-divider--label">Size</div>
+
+      <div class="tf-group tf-lots mb-3">
+        <label class="tf-label" for="tf-lots">Lots (blank = auto)</label>
+        <div class="tf-input-wrap">
+          <div class="tf-accent"></div>
+          <input id="tf-lots" type="number" name="lots_manual" class="tf-input"
+                 min="1" max="20" placeholder="auto">
+        </div>
+        <p class="help-text">Leave blank to auto-size from your risk budget.</p>
+      </div>
+
+      <button type="submit" class="btn-watch">▶ Start Watching</button>
     </form>
 
     <div class="mt-3 d-flex gap-2">
-      <a href="/tip"    class="btn btn-outline-secondary btn-sm flex-fill" style="font-size:0.72rem;">📡 Tips</a>
-      <a href="/scan"   class="btn btn-outline-secondary btn-sm flex-fill" style="font-size:0.72rem;">🔍 Scan</a>
-      <a href="/custom" class="btn btn-outline-secondary btn-sm flex-fill" style="font-size:0.72rem;">🎯 Custom</a>
+      <a href="/tip"    class="btn btn-outline-secondary btn-sm flex-fill" style="font-size:0.70rem;">📡 Tips</a>
+      <a href="/scan"   class="btn btn-outline-secondary btn-sm flex-fill" style="font-size:0.70rem;">🔍 Scan</a>
+      <a href="/custom" class="btn btn-outline-secondary btn-sm flex-fill" style="font-size:0.70rem;">🎯 Custom</a>
     </div>
 
     {% endif %}
@@ -499,6 +659,47 @@
   const QUANTITY    = {{ trade.quantity }};
   // afterTradeUrl: null  → stay on this page after trade closes; JS will clear session
   initLivePage(SECURITY_ID, ENTRY, SL, TARGET1, QUANTITY, { afterTradeUrl: null });
+</script>
+{% else %}
+<script>
+/* ── Live R:R calculator for setup form ──────────────────────────────────── */
+(function () {
+  'use strict';
+  var entryEl  = document.getElementById('tf-entry');
+  var slEl     = document.getElementById('tf-sl');
+  var targetEl = document.getElementById('tf-target');
+  var rrBox    = document.getElementById('rr-box');
+  if (!entryEl || !slEl || !targetEl || !rrBox) return;
+
+  function updateRR() {
+    var entry  = parseFloat(entryEl.value);
+    var sl     = parseFloat(slEl.value);
+    var target = parseFloat((targetEl.value || '').split(',')[0]);
+    if (!entry || !sl || !target || isNaN(entry) || isNaN(sl) || isNaN(target)) {
+      rrBox.style.display = 'none';
+      return;
+    }
+    var risk   = Math.abs(entry - sl);
+    var reward = Math.abs(target - entry);
+    var total  = risk + reward;
+    if (total <= 0 || risk <= 0) { rrBox.style.display = 'none'; return; }
+
+    var riskPct   = (risk   / total * 100).toFixed(1);
+    var rewardPct = (reward / total * 100).toFixed(1);
+    var ratio     = (reward / risk).toFixed(2);
+
+    document.getElementById('rr-risk-bar').style.width   = riskPct   + '%';
+    document.getElementById('rr-reward-bar').style.width = rewardPct + '%';
+    document.getElementById('rr-ratio').textContent      = ratio + ':1 R:R';
+    document.getElementById('rr-risk-val').textContent   = 'Risk ₹' + risk.toFixed(0);
+    document.getElementById('rr-reward-val').textContent = 'Rwd ₹'  + reward.toFixed(0);
+    rrBox.style.display = 'block';
+  }
+
+  entryEl.addEventListener('input',  updateRR);
+  slEl.addEventListener('input',     updateRR);
+  targetEl.addEventListener('input', updateRR);
+})();
 </script>
 {% endif %}
 {% endblock %}

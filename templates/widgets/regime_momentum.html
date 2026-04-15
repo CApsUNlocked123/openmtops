@@ -13,7 +13,7 @@
 {% set action = d.get("action", "WAIT") if d else "WAIT" %}
 
 <div class="widget-header">
-  <span class="widget-title">Regime Momentum</span>
+  <span class="widget-title">Regime Momentum<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Combines market regime, phase, trend health, and a linear-move score to suggest BUY / WAIT / NO TRADE.</span></details></span>
   <span class="widget-ts" id="rm-ts">{{ d.get("generated_at", "") }}</span>
 </div>
 
@@ -43,19 +43,19 @@
   <!-- Key indicators row -->
   <div class="row g-2 mb-3">
     <div class="col-6">
-      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Regime</div>
+      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Regime<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Broad market character: TRENDING, RANGING, VOLATILE, QUIET.</span></details></div>
       <div style="font-size:0.88rem;font-weight:600;" id="rm-regime">{{ d.get("regime", "—") }}</div>
     </div>
     <div class="col-6">
-      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Phase</div>
+      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Phase<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Current intraday phase: BASE, BREAKOUT, TREND, EXHAUSTION, or REVERSAL.</span></details></div>
       <div style="font-size:0.88rem;font-weight:600;" id="rm-phase">{{ d.get("phase", "—") }}</div>
     </div>
     <div class="col-6">
-      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Health</div>
+      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Health<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">0–100 trend health. Higher = cleaner momentum, fewer contra-signals.</span></details></div>
       <div style="font-size:0.88rem;font-weight:600;" id="rm-health">{{ d.get("health_score", 0) }}</div>
     </div>
     <div class="col-6">
-      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Linear Score</div>
+      <div style="font-size:0.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">Linear Score<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">0–100: how straight-line / directional the current move is. Above 60 generally favours trend trades.</span></details></div>
       <div style="font-size:0.88rem;font-weight:600;" id="rm-lin">{{ d.get("lin_score", 0) }}</div>
     </div>
   </div>
@@ -81,6 +81,18 @@
         {{ "%.2f"|format(d.get("sl",0)|float) if d.get("sl") else "—" }}
       </div>
     </div>
+    <!-- R:R progress bar -->
+    <div class="col-12">
+      <div style="display:flex;justify-content:space-between;font-size:0.68rem;color:var(--text-label);margin-bottom:3px;">
+        <span>SL {% if d.get("sl") %}₹{{ "%.0f"|format(d.sl|float) }}{% endif %}</span>
+        <span>Entry {% if d.get("entry") %}₹{{ "%.0f"|format(d.entry|float) }}{% endif %}</span>
+        <span>T1 {% if d.get("target") %}₹{{ "%.0f"|format(d.target|float) }}{% endif %}</span>
+      </div>
+      <div style="height:5px;background:rgba(255,255,255,0.07);border-radius:99px;overflow:hidden;">
+        <div style="width:34%;height:100%;background:var(--green);border-radius:99px;"></div>
+      </div>
+      <div style="text-align:right;font-size:0.68rem;color:var(--text-label);margin-top:2px;">2:1 R:R</div>
+    </div>
   </div>
   {% endif %}
 
@@ -91,12 +103,17 @@
 
   <!-- Counter reasons (NO_TRADE only) -->
   {% if d.get("counter_reasons") %}
-  <ul style="font-size:0.75rem;color:var(--text-secondary);padding-left:1.1rem;margin-top:6px;margin-bottom:0;"
-      id="rm-counters">
-    {% for r in d.counter_reasons %}
-    <li>{{ r }}</li>
-    {% endfor %}
-  </ul>
+  <div class="mt-2">
+    <div style="font-size:0.72rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">
+      Why not a trade right now:
+    </div>
+    <ul style="font-size:0.75rem;color:var(--text-secondary);padding-left:1.1rem;margin:0;"
+        id="rm-counters">
+      {% for r in d.counter_reasons %}
+      <li>{{ r }}</li>
+      {% endfor %}
+    </ul>
+  </div>
   {% endif %}
 
 {% endif %}

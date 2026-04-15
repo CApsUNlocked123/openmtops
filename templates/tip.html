@@ -7,9 +7,10 @@
 <div class="d-flex justify-content-between align-items-start mb-4">
   <div>
     <h2 class="fw-bold mb-1">📡 ActiveTip</h2>
-    <p class="stat-label mb-0">Telegram F&amp;O signals</p>
+    <p class="page-subtitle">Curated Telegram F&amp;O tips. Click any tip to view details and watch it in ActiveTrade.</p>
   </div>
   <div class="d-flex gap-2 align-items-center">
+    <label for="limit-sel" class="visually-hidden">Number of messages to fetch</label>
     <select id="limit-sel" class="form-select form-select-sm" style="width:auto;">
       {% for v in [20, 50, 100, 200] %}
         <option value="{{ v }}" {% if v == limit %}selected{% endif %}>{{ v }} messages</option>
@@ -19,67 +20,68 @@
   </div>
 </div>
 
-<!-- ── Tips table ─────────────────────────────────────────────────────── -->
+<!-- ── Tips card grid ──────────────────────────────────────────────────── -->
 {% if tips %}
-<div class="mb-2">
-  <div class="d-flex justify-content-between align-items-center mb-2">
+<div class="mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
     <div class="section-label mb-0">{{ tips|length }} tips found</div>
-    <span class="stat-label">Source: Telegram · click a row to select</span>
+    <span class="stat-label">Click a card to select</span>
   </div>
-  <div class="card">
-    <div class="table-responsive">
-      <table class="table table-hover table-sm align-middle mb-0">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Symbol</th>
-            <th>Strike</th>
-            <th>Type</th>
-            <th>Entry</th>
-            <th>SL</th>
-            <th>Targets</th>
-          </tr>
-        </thead>
-        <tbody id="tips-body">
-          {% for tip in tips %}
-          <tr class="tip-row" data-idx="{{ loop.index0 }}" style="cursor:pointer;">
-            <td class="text-secondary small">{{ tip.date }}</td>
-            <td class="fw-semibold">{{ tip.symbol or '—' }}</td>
-            <td>{{ tip.strike or '—' }}</td>
-            <td>
-              {% if tip.type == 'CE' %}
-                <span class="badge-buy">CE</span>
-              {% elif tip.type == 'PE' %}
-                <span class="badge-sell">PE</span>
-              {% else %}
-                <span class="badge-neutral">—</span>
-              {% endif %}
-            </td>
-            <td>{{ tip.entry or '—' }}</td>
-            <td>{{ tip.sl or '—' }}</td>
-            <td class="text-secondary small">{{ tip.targets | join(', ') if tip.targets else '—' }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+  <div class="row g-3" id="tips-grid">
+    {% for tip in tips %}
+    <div class="col-12 col-md-6 col-lg-4">
+      <div class="stat-card stat-card-accent tip-card
+                  {% if tip.type == 'CE' %}accent-blue{% elif tip.type == 'PE' %}accent-red{% else %}accent-purple{% endif %}"
+           data-idx="{{ loop.index0 }}" style="cursor:pointer; transition: transform 0.15s, border-color 0.15s;">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="fw-bold" style="font-size:0.95rem;">
+            {{ tip.symbol or '—' }}{% if tip.strike %} {{ tip.strike }}{% endif %}
+          </div>
+          {% if tip.type == 'CE' %}
+            <span class="badge-buy">CE</span>
+          {% elif tip.type == 'PE' %}
+            <span class="badge-sell">PE</span>
+          {% else %}
+            <span class="badge-neutral">—</span>
+          {% endif %}
+        </div>
+        <div class="row g-1 text-center mb-2">
+          <div class="col-4">
+            <div class="stat-label" style="margin-bottom:2px;">Entry</div>
+            <div class="fw-semibold" style="font-size:0.88rem;">{{ tip.entry or '—' }}</div>
+          </div>
+          <div class="col-4">
+            <div class="stat-label" style="margin-bottom:2px;">SL</div>
+            <div class="fw-semibold text-red" style="font-size:0.88rem;">{{ tip.sl or '—' }}</div>
+          </div>
+          <div class="col-4">
+            <div class="stat-label" style="margin-bottom:2px;">Target</div>
+            <div class="fw-semibold text-green" style="font-size:0.88rem;">
+              {{ tip.targets[0] if tip.targets else '—' }}
+            </div>
+          </div>
+        </div>
+        <div class="stat-label mb-0" style="font-size:0.68rem;">{{ tip.date or '—' }}</div>
+      </div>
     </div>
+    {% endfor %}
   </div>
 </div>
 {% else %}
-<div class="card">
-  <div class="card-body text-center py-5">
-    <div style="font-size:2rem;margin-bottom:8px;">📡</div>
-    <div class="stat-label">No tips found</div>
-    <div style="font-size:0.80rem;color:var(--text-secondary);margin-top:4px;">
-      Try increasing the scan range above, or check Telegram connection in Settings.
-    </div>
+<div class="empty-state">
+  <div class="empty-state__icon" aria-hidden="true">📡</div>
+  <div class="empty-state__title">No tips yet</div>
+  <div class="empty-state__body">
+    Try increasing the message count above, or check back after market hours.
+    If this keeps happening, verify your Telegram connection in <a class="empty-state__cta" href="/profile">Profile</a>.
   </div>
 </div>
 {% endif %}
 
 <!-- ── Selected tip detail ─────────────────────────────────────────────── -->
 <div id="tip-detail" class="d-none mt-4">
-  <div class="section-label mb-2">Selected Tip</div>
+  <div class="section-label mb-2">Selected tip</div>
+  <p class="section-intro">Review the parsed levels below. If the instrument is found, you can start watching it in one click.</p>
   <div class="card">
     <div class="card-body">
       <div class="row g-3 mb-3">
@@ -139,12 +141,14 @@
   }
   window.refreshTips = refreshTips;
 
-  document.querySelectorAll('.tip-row').forEach(function (row) {
+  document.querySelectorAll('.tip-card').forEach(function (row) {
     row.addEventListener('click', function () {
-      document.querySelectorAll('.tip-row').forEach(function (r) {
-        r.classList.remove('table-active');
+      document.querySelectorAll('.tip-card').forEach(function (r) {
+        r.style.borderColor = '';
+        r.style.transform   = '';
       });
-      row.classList.add('table-active');
+      row.style.borderColor = 'var(--purple-border)';
+      row.style.transform   = 'translateY(-2px)';
 
       var idx  = parseInt(row.dataset.idx, 10);
       var tip  = TIPS[idx];

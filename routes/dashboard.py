@@ -26,6 +26,7 @@ from indicators_dashboard import (
     compute_linear_move_score,
     detect_oi_wall,
     build_phase_timeline,
+    build_signal_output,
 )
 from signal_engine import generate_signal
 
@@ -165,6 +166,7 @@ def _update_phase_log(phase: str) -> None:
 
 def _build_snapshot(instrument: str) -> dict:
     """Run all 7 indicator functions and return the full snapshot dict."""
+    now     = datetime.now()
     candles = candle_service.get_candles(instrument, n=50)
 
     # On-demand fetch if DB has no candles yet — only during market hours
@@ -261,6 +263,54 @@ def _build_snapshot(instrument: str) -> dict:
         spot         = spot,
     )
 
+    # ── Spec v1.0: run the unified signal pipeline to surface day_character,
+    # ATR, confidence, dynamic levels, late-entry / whipsaw guards on the
+    # ActiveTrade dashboard. Legacy `signal` above is kept untouched for
+    # backwards compatibility. ───────────────────────────────────────────────
+    now_t     = now.time()
+    strike_oi_map = {
+        int(r["strike"]): {"ce_oi": r.get("ce_oi", 0), "pe_oi": r.get("pe_oi", 0)}
+        for r in oi_rows if r.get("strike") is not None
+    }
+    # First 6 candles of today for day character
+    today_ymd = now.strftime("%Y-%m-%d")
+    candles_today = [c for c in candles_all if (c.get("time") or "").startswith(today_ymd)]
+    first6 = candles_today[:6] if len(candles_today) >= 6 else candles_all[:6]
+    # Open-to-extreme pt range by 10:30 AM (volatility gauge for threshold)
+    range_by_1030 = 0.0
+    pre_1030 = [c for c in candles_today if (c.get("time") or "")[11:16] <= "10:30"]
+    if pre_1030:
+        hi = max(c["high"] for c in pre_1030)
+        lo = min(c["low"]  for c in pre_1030)
+        opn = pre_1030[0]["open"]
+        range_by_1030 = max(abs(hi - opn), abs(opn - lo))
+
+    # Track regime history per instrument (for whipsaw detection)
+    hist = g.REGIME_HISTORY.setdefault(instrument, [])
+    if not hist or hist[-1] != regime:
+        hist.append(regime)
+        if len(hist) > 10:
+            del hist[: len(hist) - 10]
+
+    sig_out = build_signal_output(
+        candles         = candles_all,
+        candles_15m     = None,
+        ema_values      = ema_all,
+        ema_values_15m  = None,
+        oi_history      = oi_history,
+        strike_oi_map   = strike_oi_map,
+        pcr             = pcr_now,
+        iv_percentile   = iv_percentile,
+        call_oi_delta   = call_oi_delta,
+        put_oi_delta    = put_oi_delta,
+        pcr_series      = pcr_series,
+        volume_ratio    = vol_ratio,
+        session_time    = now_t,
+        candles_first_6 = first6,
+        range_by_1030   = range_by_1030,
+        regime_history  = hist,
+    )
+
     return {
         "active":             True,
         "ready":              True,
@@ -282,6 +332,16 @@ def _build_snapshot(instrument: str) -> dict:
         "total_pe_delta":  put_oi_delta,
         "live_candle":     live_candle,
         "signal":          signal,
+        # ── Spec v1.0 fields ──
+        "day_character":    sig_out["day_character"],
+        "atr":              sig_out["atr"],
+        "confidence":       sig_out["confidence"],
+        "dynamic_levels":   sig_out["dynamic_levels"],
+        "whipsaw_lockout":  sig_out["whipsaw_lockout"],
+        "late_entry":       sig_out["late_entry"],
+        "final_signal":     sig_out["final_signal"],
+        "signal_direction": sig_out["signal_direction"],
+        "block_reason":     sig_out["block_reason"],
     }
 
 

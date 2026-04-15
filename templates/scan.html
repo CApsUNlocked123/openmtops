@@ -7,14 +7,14 @@
 <div class="d-flex justify-content-between align-items-start mb-4">
   <div>
     <h2 class="fw-bold mb-1">🔍 ActiveScan</h2>
-    <p class="stat-label mb-0">Strategy signals &amp; regime analysis</p>
+    <p class="page-subtitle">Live signals from the strategy engine. Click a card to pre-fill a trade.</p>
   </div>
 </div>
 
 <!-- ── Instrument selector ───────────────────────────────────────────────── -->
 <div class="mb-4">
-  <div class="section-label mb-2">Instrument</div>
-  <div class="d-flex gap-2 flex-wrap" id="inst-selector">
+  <div class="section-label mb-2">Pick an instrument</div>
+  <div class="d-flex gap-2 flex-wrap" id="inst-selector" role="group" aria-label="Instrument selector">
     {% set default_inst = instrument | default("NIFTY") %}
     {% for inst in ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"] %}
     <button class="inst-btn {% if inst == default_inst %}active{% endif %}"
@@ -31,11 +31,12 @@
       <!-- Loading skeleton until JS mounts -->
       <div class="widget-header">
         <span class="widget-title">{{ widget.icon }} {{ widget.name }}</span>
-        <span style="font-size:0.72rem;color:var(--text-secondary);">loading…</span>
+        <span class="skeleton-shimmer" style="width:54px;height:10px;display:inline-block;">loading…</span>
       </div>
-      <div style="height:80px;display:flex;align-items:center;justify-content:center;
-                  color:var(--text-secondary);font-size:0.80rem;">
-        Fetching signal…
+      <div style="height:80px;padding:10px;display:flex;flex-direction:column;gap:8px;">
+        <div class="skeleton-shimmer" style="height:14px;width:60%;"></div>
+        <div class="skeleton-shimmer" style="height:10px;width:85%;"></div>
+        <div class="skeleton-shimmer" style="height:10px;width:40%;"></div>
       </div>
     </div>
   </div>
@@ -44,37 +45,39 @@
 
 <!-- Tip: pre-fill execute form from signal -->
 <div id="scan-execute-modal" class="d-none mt-4">
-  <div class="section-label mb-2">Execute Signal</div>
+  <div class="section-label mb-2">Execute signal</div>
   <div class="card">
     <div class="card-body">
+      <p class="section-intro">Review the pre-filled trade below, then send it to ActiveTrade to start watching.</p>
       <form method="post" action="/scan/execute" id="scan-exec-form">
         <div class="row g-2 mb-3">
           <div class="col-6 col-md-3">
-            <label class="stat-label mb-1">Symbol</label>
-            <input type="text" name="symbol" id="se-symbol" class="form-control form-control-sm" readonly>
+            <label class="form-label-app" for="se-symbol">Symbol</label>
+            <input type="text" name="symbol" id="se-symbol" class="form-control" readonly>
           </div>
           <div class="col-6 col-md-2">
-            <label class="stat-label mb-1">Strike</label>
-            <input type="text" name="strike" id="se-strike" class="form-control form-control-sm">
+            <label class="form-label-app" for="se-strike">Strike</label>
+            <input type="text" name="strike" id="se-strike" class="form-control">
           </div>
           <div class="col-6 col-md-2">
-            <label class="stat-label mb-1">Type</label>
-            <select name="option_type" id="se-otype" class="form-select form-select-sm">
+            <label class="form-label-app" for="se-otype">Type</label>
+            <select name="option_type" id="se-otype" class="form-select">
               <option value="CE">CE</option>
               <option value="PE">PE</option>
             </select>
           </div>
           <div class="col-6 col-md-2">
-            <label class="stat-label mb-1">Entry</label>
-            <input type="text" name="entry" id="se-entry" class="form-control form-control-sm">
+            <label class="form-label-app" for="se-entry">Entry</label>
+            <input type="text" name="entry" id="se-entry" class="form-control">
           </div>
           <div class="col-6 col-md-2">
-            <label class="stat-label mb-1">SL</label>
-            <input type="text" name="sl" id="se-sl" class="form-control form-control-sm">
+            <label class="form-label-app" for="se-sl">SL</label>
+            <input type="text" name="sl" id="se-sl" class="form-control">
           </div>
           <div class="col-6 col-md-2">
-            <label class="stat-label mb-1">Targets</label>
-            <input type="text" name="targets" id="se-targets" class="form-control form-control-sm" placeholder="t1,t2">
+            <label class="form-label-app" for="se-targets">Targets</label>
+            <input type="text" name="targets" id="se-targets" class="form-control" placeholder="t1,t2">
+            <p class="help-text">Comma-separated. We exit at each in turn.</p>
           </div>
         </div>
         <button type="submit" class="btn btn-success">▶ Watch in ActiveTrade</button>

@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import date
-from flask import Blueprint, render_template, jsonify
+from flask import Blueprint, render_template, jsonify, request as _req
 from dhan_broker import dhan
 
 bp = Blueprint("home", __name__)
@@ -37,18 +37,21 @@ def _trade_summary():
                 except Exception:
                     pass
 
-    total_pnl = round(sum(t.get("pnl", 0) for t in trades), 2)
-    wins      = sum(1 for t in trades if t.get("pnl", 0) > 0)
-    losses    = len(trades) - wins
-    win_rate  = round(wins / len(trades) * 100, 1) if trades else 0.0
+    total_pnl  = round(sum(t.get("pnl", 0) for t in trades), 2)
+    wins       = sum(1 for t in trades if t.get("pnl", 0) > 0)
+    losses     = len(trades) - wins
+    win_rate   = round(wins / len(trades) * 100, 1) if trades else 0.0
+    # Last 10 P&L values (newest first) for sparklines
+    pnl_series = [round(t.get("pnl", 0), 2) for t in trades[:10]]
 
     return {
-        "total":     len(trades),
-        "pnl":       total_pnl,
-        "today_pnl": round(today_pnl, 2),
-        "wins":      wins,
-        "losses":    losses,
-        "win_rate":  win_rate,
+        "total":      len(trades),
+        "pnl":        total_pnl,
+        "today_pnl":  round(today_pnl, 2),
+        "wins":       wins,
+        "losses":     losses,
+        "win_rate":   win_rate,
+        "pnl_series": pnl_series,
     }, trades[:5]
 
 
@@ -146,3 +149,19 @@ def home_snapshot():
         "summary":      summary,
         "open_count":   open_count,
     })
+
+
+@bp.route("/api/home/chart")
+def home_chart():
+    """
+    Intraday 5-min candle closes for an index — used by the dashboard main chart.
+    Returns up to 78 bars (6.5 h × 12 bars/h) oldest-first.
+    """
+    import candle_service
+    name = _req.args.get("index", "NIFTY").upper()
+    if name not in _INDEX_SIDS:
+        return jsonify({"labels": [], "closes": []})
+    rows = candle_service.get_candles(name, n=78)       # already oldest → newest
+    labels = [r["time"][11:16] for r in rows]            # "HH:MM"
+    closes = [round(float(r["close"]), 2) for r in rows]
+    return jsonify({"labels": labels, "closes": closes})

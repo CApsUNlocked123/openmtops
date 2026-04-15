@@ -12,69 +12,152 @@
 </head>
 <body>
 
-<nav class="navbar navbar-expand-lg navbar-dark px-3">
-  <a class="navbar-brand" href="/">
-    <img src="/static/assets/darkSmall.png" alt="OpenMTOps" height="30">
-    OpenMTOps
-  </a>
-  <div class="collapse navbar-collapse">
-    <ul class="navbar-nav ms-auto gap-1 align-items-center">
-      <li class="nav-item"><a class="nav-link" href="/">⚡ Dashboard</a></li>
-      <li class="nav-item"><a class="nav-link" href="/trade">📈 ActiveTrade</a></li>
-      <li class="nav-item"><a class="nav-link" href="/scan">🔍 ActiveScan</a></li>
-      <li class="nav-item"><a class="nav-link" href="/tip">📡 ActiveTip</a></li>
-      <li class="nav-item"><a class="nav-link" href="/profile">👤 Profile</a></li>
+<!-- ── Mobile hamburger ──────────────────────────────────────────────────── -->
+<button class="hamburger d-lg-none" id="hamburger"
+        aria-label="Open navigation menu"
+        onclick="document.getElementById('sidebar').classList.toggle('open')">
+  <span aria-hidden="true">☰</span>
+  <span style="margin-left:6px;font-size:.8rem;">Menu</span>
+</button>
 
-      <!-- Notification bell -->
-      <li class="nav-item dropdown">
-        <a class="nav-link position-relative px-2" href="#" id="notif-bell"
-           data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
-          🔔
-          <span id="notif-badge"
-                class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none"
-                style="font-size:.65rem;">0</span>
-        </a>
-        <ul class="dropdown-menu dropdown-menu-end bg-dark border-secondary p-0"
-            id="notif-dropdown"
-            style="min-width:320px; max-height:420px; overflow-y:auto;">
-          <li class="px-3 py-2 border-bottom border-secondary d-flex justify-content-between align-items-center">
-            <span class="small fw-bold text-secondary">NOTIFICATIONS</span>
-            <button class="btn btn-link btn-sm text-secondary p-0"
-                    id="notif-mark-all" style="font-size:.75rem;">Mark all read</button>
-          </li>
-          <li id="notif-empty" class="px-3 py-3 text-center text-secondary small">
-            No notifications yet
-          </li>
-        </ul>
-      </li>
-    </ul>
-  </div>
-</nav>
+<div class="app-layout">
 
-<div class="container-fluid py-4 px-4">
+  <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
 
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      {% for cat, msg in messages %}
-        <div class="alert alert-{{ cat }} alert-dismissible fade show mb-3" role="alert">
-          {{ msg }}
-          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-      {% endfor %}
-    {% endif %}
-  {% endwith %}
+    <div class="sidebar-brand">
+      <img src="/static/assets/darkSmall.png" alt="OpenMTOps">
+      OpenMTOps
+    </div>
 
-  {% block content %}{% endblock %}
+    <nav class="sidebar-nav">
+      <a href="/"
+         aria-label="Dashboard"
+         class="sidebar-link {% if request.path == '/' %}active{% endif %}">
+        <span class="sidebar-link__icon" aria-hidden="true">⚡</span>
+        <span class="sidebar-link__label">Dashboard</span>
+      </a>
+      <a href="/trade"
+         aria-label="ActiveTrade"
+         class="sidebar-link {% if request.path.startswith('/trade') or request.path.startswith('/activetrade') %}active{% endif %}">
+        <span class="sidebar-link__icon" aria-hidden="true">📈</span>
+        <span class="sidebar-link__label">ActiveTrade</span>
+      </a>
+      <a href="/scan"
+         aria-label="ActiveScan"
+         class="sidebar-link {% if request.path.startswith('/scan') %}active{% endif %}">
+        <span class="sidebar-link__icon" aria-hidden="true">🔍</span>
+        <span class="sidebar-link__label">ActiveScan</span>
+      </a>
+      <a href="/tip"
+         aria-label="ActiveTip"
+         class="sidebar-link {% if request.path.startswith('/tip') %}active{% endif %}">
+        <span class="sidebar-link__icon" aria-hidden="true">📡</span>
+        <span class="sidebar-link__label">ActiveTip</span>
+      </a>
+      <a href="/profile"
+         aria-label="Profile"
+         class="sidebar-link {% if request.path.startswith('/profile') %}active{% endif %}">
+        <span class="sidebar-link__icon" aria-hidden="true">👤</span>
+        <span class="sidebar-link__label">Profile</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <!-- Theme toggle -->
+      <button id="theme-toggle" class="sidebar-link" aria-label="Toggle theme">
+        <span class="sidebar-link__icon" aria-hidden="true">🌙</span>
+        <span class="sidebar-link__label">Dark mode</span>
+      </button>
+
+    </div>
+
+  </aside><!-- /sidebar -->
+
+  <!-- ── Main content ──────────────────────────────────────────────────────── -->
+  <main class="main-content" id="main-content">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat, msg in messages %}
+          <div class="alert alert-{{ cat }} alert-dismissible fade show mb-3" role="alert">
+            {{ msg }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+
+  </main><!-- /main-content -->
+
+</div><!-- /app-layout -->
+
+<!-- ── Floating notification bell (fixed, outside any overflow container) ── -->
+<div class="dropup" id="notif-fab-wrap"
+     style="position:fixed;bottom:24px;right:24px;z-index:1090;">
+  <button id="notif-bell"
+          data-bs-toggle="dropdown"
+          data-bs-auto-close="outside"
+          aria-expanded="false"
+          style="width:48px;height:48px;border-radius:50%;
+                 background:linear-gradient(135deg,#5B21B6,#7C3AED);
+                 border:none;color:#fff;font-size:1.1rem;cursor:pointer;
+                 box-shadow:0 4px 18px rgba(124,58,237,0.50);
+                 display:flex;align-items:center;justify-content:center;
+                 transition:transform 0.15s,box-shadow 0.15s;
+                 position:relative;">
+    🔔
+    <span id="notif-badge"
+          style="position:absolute;top:-3px;right:-3px;
+                 background:#EF4444;color:#fff;border-radius:999px;
+                 font-size:0.60rem;font-weight:700;line-height:1;
+                 min-width:17px;height:17px;
+                 display:none;align-items:center;justify-content:center;
+                 padding:0 4px;border:2px solid #0D0D14;">0</span>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end" id="notif-dropdown"
+      style="min-width:320px;max-height:420px;overflow-y:auto;margin-bottom:10px;">
+    <li class="px-3 py-2 border-bottom d-flex justify-content-between align-items-center">
+      <span class="small fw-bold" style="color:var(--text-label);letter-spacing:.06em;">NOTIFICATIONS</span>
+      <button class="btn btn-link btn-sm p-0" id="notif-mark-all"
+              style="font-size:.75rem;color:var(--text-secondary);">Mark all read</button>
+    </li>
+    <li id="notif-empty" class="px-3 py-3 text-center small"
+        style="color:var(--text-secondary);">No notifications yet</li>
+  </ul>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 {% block scripts %}{% endblock %}
 
 <script>
 (function () {
   'use strict';
 
-  // ── category colour map ──────────────────────────────────────────────────
+  // ── Theme toggle ─────────────────────────────────────────────────────────
+  const _root = document.documentElement;
+  const _btn  = document.getElementById('theme-toggle');
+  const _saved = localStorage.getItem('omtops-theme') || 'dark';
+  _root.setAttribute('data-bs-theme', _saved);
+  function _setThemeBtn(theme) {
+    if (!_btn) return;
+    const ic = _btn.querySelector('.sidebar-link__icon');
+    const lb = _btn.querySelector('.sidebar-link__label');
+    if (ic) ic.textContent = theme === 'dark' ? '🌙' : '☀️';
+    if (lb) lb.textContent = theme === 'dark' ? 'Dark mode' : 'Light mode';
+  }
+  _setThemeBtn(_saved);
+  if (_btn) _btn.addEventListener('click', function () {
+    const next = _root.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+    _root.setAttribute('data-bs-theme', next);
+    localStorage.setItem('omtops-theme', next);
+    _setThemeBtn(next);
+  });
+
+  // ── Notification system ──────────────────────────────────────────────────
   const CATEGORY_COLOR = {
     signal: 'text-success',
     tip:    'text-info',
@@ -82,22 +165,18 @@
     system: 'text-secondary',
   };
 
-  function _badge(n) {
-    return `<span class="badge rounded-pill bg-opacity-25 bg-secondary text-${(CATEGORY_COLOR[n.category]||'text-secondary').replace('text-','')} small">${n.category}</span>`;
-  }
-
   function _renderItem(n) {
     const li = document.createElement('li');
-    li.className = 'border-bottom border-secondary';
+    li.className = 'border-bottom';
     li.dataset.id = n.id;
-    li.innerHTML = `
-      <div class="px-3 py-2 ${n.read ? '' : 'bg-secondary bg-opacity-10'}" style="cursor:default">
-        <div class="d-flex justify-content-between align-items-start gap-2">
-          <span class="small fw-semibold ${CATEGORY_COLOR[n.category]||'text-white'}">${n.title}</span>
-          <span class="text-secondary" style="font-size:.7rem;white-space:nowrap">${n.time}</span>
-        </div>
-        <div class="text-secondary" style="font-size:.78rem;line-height:1.3">${n.body}</div>
-      </div>`;
+    li.innerHTML =
+      '<div class="px-3 py-2 ' + (n.read ? '' : 'bg-secondary bg-opacity-10') + '" style="cursor:default">' +
+        '<div class="d-flex justify-content-between align-items-start gap-2">' +
+          '<span class="small fw-semibold ' + (CATEGORY_COLOR[n.category] || 'text-white') + '">' + n.title + '</span>' +
+          '<span class="text-secondary" style="font-size:.7rem;white-space:nowrap">' + n.time + '</span>' +
+        '</div>' +
+        '<div class="text-secondary" style="font-size:.78rem;line-height:1.3">' + n.body + '</div>' +
+      '</div>';
     return li;
   }
 
@@ -106,79 +185,74 @@
     if (!badge) return;
     if (count > 0) {
       badge.textContent = count > 99 ? '99+' : count;
-      badge.classList.remove('d-none');
+      badge.style.display = 'flex';
     } else {
-      badge.classList.add('d-none');
+      badge.style.display = 'none';
     }
   }
 
   function _prependNotif(n) {
-    const dd = document.getElementById('notif-dropdown');
+    const dd    = document.getElementById('notif-dropdown');
     const empty = document.getElementById('notif-empty');
     if (!dd) return;
     if (empty) empty.remove();
-    // Insert after the header <li> (first child)
     const header = dd.querySelector('li:first-child');
     dd.insertBefore(_renderItem(n), header ? header.nextSibling : null);
   }
 
   function _loadAll() {
     fetch('/api/notifications/all')
-      .then(r => r.ok ? r.json() : [])
-      .then(list => {
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (list) {
         if (!list || !list.length) return;
-        const dd = document.getElementById('notif-dropdown');
+        const dd    = document.getElementById('notif-dropdown');
         const empty = document.getElementById('notif-empty');
         if (empty) empty.remove();
         const header = dd.querySelector('li:first-child');
-        // Render in order (already newest-first from server)
-        list.forEach(n => dd.insertBefore(_renderItem(n), null));
-        // Re-insert header at top
+        list.forEach(function (n) { dd.insertBefore(_renderItem(n), null); });
         if (header) dd.insertBefore(header, dd.firstChild);
-        const unread = list.filter(n => !n.read).length;
-        _updateBadge(unread);
+        _updateBadge(list.filter(function (n) { return !n.read; }).length);
       })
-      .catch(() => {});
+      .catch(function () {});
   }
 
-  // Mark all read when dropdown opens
   const bell = document.getElementById('notif-bell');
   if (bell) {
-    bell.addEventListener('show.bs.dropdown', () => {
-      fetch('/api/notifications/mark_read', {method:'POST',
-        headers:{'Content-Type':'application/json'}, body:'{}'})
-        .then(r => r.ok ? r.json() : null)
-        .then(d => { if (d) _updateBadge(d.unread); })
-        .catch(() => {});
-      // Visually clear unread highlight
+    bell.addEventListener('show.bs.dropdown', function () {
+      fetch('/api/notifications/mark_read', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) { if (d) _updateBadge(d.unread); })
+        .catch(function () {});
       document.querySelectorAll('#notif-dropdown li .bg-secondary.bg-opacity-10')
-        .forEach(el => el.classList.remove('bg-secondary','bg-opacity-10'));
+        .forEach(function (el) { el.classList.remove('bg-secondary', 'bg-opacity-10'); });
     });
   }
 
   const markAllBtn = document.getElementById('notif-mark-all');
   if (markAllBtn) {
-    markAllBtn.addEventListener('click', e => {
+    markAllBtn.addEventListener('click', function (e) {
       e.preventDefault();
-      fetch('/api/notifications/mark_read', {method:'POST',
-        headers:{'Content-Type':'application/json'}, body:'{}'})
-        .then(() => _updateBadge(0)).catch(() => {});
+      fetch('/api/notifications/mark_read', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+      })
+        .then(function () { _updateBadge(0); })
+        .catch(function () {});
     });
   }
 
-  // SocketIO real-time push (only if socket already on page; else skip)
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('DOMContentLoaded', function () {
     _loadAll();
-
     if (typeof io !== 'undefined') {
-      const sock = io({transports:['websocket','polling']});
-      sock.on('notification', n => {
+      const sock = io({transports: ['websocket', 'polling']});
+      sock.on('notification', function (n) {
         _prependNotif(n);
-        // Increment badge only if dropdown is closed
         const isOpen = document.getElementById('notif-dropdown')
-                               ?.classList.contains('show');
+                                ?.classList.contains('show');
         if (!isOpen) {
-          const cur = parseInt(document.getElementById('notif-badge')?.textContent || '0', 10);
+          const cur = parseInt(
+            document.getElementById('notif-badge')?.textContent || '0', 10);
           _updateBadge(cur + 1);
         }
       });

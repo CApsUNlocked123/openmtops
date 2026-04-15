@@ -45,10 +45,21 @@
 
   // ── DOM update ─────────────────────────────────────────────────────────
 
+  var _ACTION_BORDER = {
+    BUY:      '#22C55E',   /* --green  */
+    WAIT:     '#F59E0B',   /* --yellow */
+    NO_TRADE: 'rgba(255,255,255,0.15)',
+  };
+
   function _applyData(d) {
     if (!_container) return;
 
     var action = d.action || 'WAIT';
+
+    // Signal color top-border on the widget card
+    _container.style.borderTopColor = _ACTION_BORDER[action] || 'rgba(255,255,255,0.06)';
+    _container.style.borderTopWidth = '3px';
+    _container.style.borderTopStyle = 'solid';
 
     // Error state
     if (d.error) {
@@ -100,6 +111,17 @@
           '<div class="col-4">' +
             '<div style="font-size:.68rem;color:var(--text-label);text-transform:uppercase;letter-spacing:.06em;">SL</div>' +
             '<div style="font-size:.92rem;font-weight:700;color:var(--red);" id="rm-sl">—</div>' +
+          '</div>' +
+          '<div class="col-12 mt-1">' +
+            '<div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-label);margin-bottom:3px;">' +
+              '<span id="rm-rr-sl-lbl">SL</span>' +
+              '<span id="rm-rr-en-lbl">Entry</span>' +
+              '<span id="rm-rr-t1-lbl">T1</span>' +
+            '</div>' +
+            '<div style="height:5px;background:rgba(255,255,255,0.07);border-radius:99px;overflow:hidden;">' +
+              '<div style="width:34%;height:100%;background:#22C55E;border-radius:99px;"></div>' +
+            '</div>' +
+            '<div style="text-align:right;font-size:.68rem;color:var(--text-label);margin-top:2px;">2:1 R:R</div>' +
           '</div>';
         if (reasonEl) {
           reasonEl.parentNode.insertBefore(lDiv, reasonEl);

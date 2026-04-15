@@ -30,21 +30,25 @@
 {% block content %}
 
 <!-- ── Controls ──────────────────────────────────────────────────────────── -->
-<div class="d-flex align-items-center gap-3 mb-3">
-  <h4 class="fw-bold mb-0">🧠 Strategy Dashboard</h4>
-  <select id="instrument-sel" class="form-select form-select-sm w-auto">
-    {% for name in instruments %}
-      <option value="{{ name }}">{{ name }}</option>
-    {% endfor %}
-  </select>
-  <span id="status-badge" class="badge bg-secondary fs-6 px-3">Loading…</span>
-  <span id="live-candle-info" class="badge bg-warning text-dark d-none ms-2"></span>
-  <small class="text-secondary ms-auto">Snapshot every 5s · OI map every 30s</small>
+<div class="mb-3">
+  <div class="d-flex align-items-center gap-3">
+    <h4 class="fw-bold mb-0">🧠 Strategy Dashboard</h4>
+    <label for="instrument-sel" class="visually-hidden">Instrument</label>
+    <select id="instrument-sel" class="form-select form-select-sm w-auto">
+      {% for name in instruments %}
+        <option value="{{ name }}">{{ name }}</option>
+      {% endfor %}
+    </select>
+    <span id="status-badge" class="badge bg-secondary fs-6 px-3">Loading…</span>
+    <span id="live-candle-info" class="badge bg-warning text-dark d-none ms-2"></span>
+    <small class="text-secondary ms-auto">Snapshot every 5s · OI map every 30s</small>
+  </div>
+  <p class="page-subtitle mt-1 mb-0" style="font-size:.8rem;">Regime, phase, and linear-move score for the selected instrument — updates while the market is open.</p>
 </div>
 
 <!-- ── Panel 1: Regime Banner ────────────────────────────────────────────── -->
 <div id="regime-banner" class="alert alert-secondary fw-bold text-center fs-4 py-3 mb-3">
-  <div id="regime-label">Waiting for data…</div>
+  <div id="regime-label">Waiting for data… <span class="page-subtitle" style="font-size:.78rem;font-weight:400;display:block;margin-top:4px;">Feed warms up on first tick — typically within ~30 seconds of market open.</span></div>
   <div class="regime-sub d-flex justify-content-center gap-4 mt-1">
     <span>Phase: <strong id="phase-label">—</strong></span>
     <span>Velocity: <strong id="velocity-label">—</strong></span>
@@ -95,7 +99,7 @@
   <!-- ── Panel 2: OI Battlefield ─────────────────────────────────────────── -->
   <div class="col-md-7">
     <div class="card border-secondary h-100">
-      <div class="card-header fw-semibold border-secondary">📊 OI Battlefield</div>
+      <div class="card-header fw-semibold border-secondary">📊 OI Battlefield<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Open-Interest walls around spot — red = call resistance, green = put support. Tracks where big money is parked.</span></details></div>
       <div class="card-body d-flex flex-column" style="min-height:0; flex:1;">
 
         <div id="oi-unavailable" class="text-secondary text-center py-4">
@@ -136,7 +140,7 @@
   <!-- ── Panel 3: Greeks Momentum ────────────────────────────────────────── -->
   <div class="col-md-5">
     <div class="card border-secondary h-100">
-      <div class="card-header fw-semibold border-secondary">⚡ Greeks Momentum</div>
+      <div class="card-header fw-semibold border-secondary">⚡ Greeks Momentum<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Rate of change in call/put Open Interest. Strong positive skew on one side hints at directional conviction.</span></details></div>
       <div class="card-body d-flex flex-column gap-3">
 
         <!-- 4 KPI cards -->
@@ -192,7 +196,7 @@
 
 <!-- ── Panel 4: Phase Timeline ───────────────────────────────────────────── -->
 <div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold border-secondary">⏱ Phase Timeline (today)</div>
+  <div class="card-header fw-semibold border-secondary">⏱ Phase Timeline (today)<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Intraday phases — BASE (ranging), BREAKOUT (expansion), TREND (directional), EXHAUSTION (running out of steam), REVERSAL (turning).</span></details></div>
   <div class="card-body p-2">
 
     <!-- Line chart: price + EMA with phase background regions -->
@@ -221,7 +225,7 @@
 
 <!-- ── Panel 5: Linear Move Scorecard ───────────────────────────────────── -->
 <div class="card border-secondary mb-3">
-  <div class="card-header fw-semibold border-secondary">📐 Linear Move Scorecard</div>
+  <div class="card-header fw-semibold border-secondary">📐 Linear Move Scorecard<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">0–100 score: how cleanly the market is trending (vs. choppy). Combines EMA slope, OI build, PCR trend, IV direction, candle structure, and volume.</span></details></div>
   <div class="card-body">
     <div class="row align-items-center g-3">
 
@@ -237,32 +241,32 @@
         <table class="table table-sm table-borderless mb-0" style="color:inherit;">
           <tbody>
             <tr class="score-row">
-              <td style="width:160px" class="text-secondary">EMA Slope</td>
+              <td style="width:160px" class="text-secondary">EMA Slope<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Slope of the 9-EMA over the last 12 candles. Steeper slope = stronger directional push.</span></details></td>
               <td style="width:40px" id="score-num-ema_slope" class="fw-semibold text-end">—</td>
               <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-ema_slope" class="score-bar" style="width:0%"></div></div></td>
             </tr>
             <tr class="score-row">
-              <td class="text-secondary">OI Buildup</td>
+              <td class="text-secondary">OI Buildup<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Directional bias of ATM±5 Open Interest deltas. Heavy put writing = bullish; heavy call writing = bearish.</span></details></td>
               <td id="score-num-oi_buildup" class="fw-semibold text-end">—</td>
               <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-oi_buildup" class="score-bar" style="width:0%"></div></div></td>
             </tr>
             <tr class="score-row">
-              <td class="text-secondary">PCR Trend</td>
+              <td class="text-secondary">PCR Trend<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Put-Call Ratio direction over the last 20 readings. Rising PCR is bullish; falling is bearish.</span></details></td>
               <td id="score-num-pcr_trend" class="fw-semibold text-end">—</td>
               <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-pcr_trend" class="score-bar" style="width:0%"></div></div></td>
             </tr>
             <tr class="score-row">
-              <td class="text-secondary">IV Direction</td>
+              <td class="text-secondary">IV Direction<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Call vs put IV skew. Low ratio = buyers' market; high ratio = sellers' market.</span></details></td>
               <td id="score-num-iv_direction" class="fw-semibold text-end">—</td>
               <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-iv_direction" class="score-bar" style="width:0%"></div></div></td>
             </tr>
             <tr class="score-row">
-              <td class="text-secondary">Candle Structure</td>
+              <td class="text-secondary">Candle Structure<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Body-to-range ratio of the last 4 candles. Big bodies = trending; tiny bodies = indecision.</span></details></td>
               <td id="score-num-candle_structure" class="fw-semibold text-end">—</td>
               <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-candle_structure" class="score-bar" style="width:0%"></div></div></td>
             </tr>
             <tr class="score-row">
-              <td class="text-secondary">Volume Ratio</td>
+              <td class="text-secondary">Volume Ratio<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Last candle volume ÷ 20-candle average. &gt;1.0 = expanding participation.</span></details></td>
               <td id="score-num-volume_ratio" class="fw-semibold text-end">—</td>
               <td><div style="background:rgba(255,255,255,.07);border-radius:4px;height:8px;"><div id="score-volume_ratio" class="score-bar" style="width:0%"></div></div></td>
             </tr>

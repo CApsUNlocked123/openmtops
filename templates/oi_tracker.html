@@ -30,7 +30,8 @@
 {# ── Header ──────────────────────────────────────────────────────────────── #}
 <div class="d-flex justify-content-between align-items-center mb-1">
   <div>
-    <h3 class="fw-bold mb-0">📊 OI Tracker</h3>
+    <h3 class="fw-bold mb-1">📊 OI Tracker</h3>
+    <p class="page-subtitle mb-1">Tracks open-interest build-up around spot to reveal where the market is pricing support and resistance.</p>
     <small class="text-secondary">
       Started: <span id="start-display">{{ kpis.start_display }}</span>
       &nbsp;|&nbsp; Duration: <span id="duration">{{ kpis.duration }}</span>
@@ -47,7 +48,7 @@
   </div>
   <div class="d-flex gap-2">
     <form method="post" action="/oi_tracker/stop">
-      <button type="submit" class="btn btn-outline-danger btn-sm">■ Stop Tracking</button>
+      <button type="submit" class="btn-danger-app btn-sm">■ Stop Tracking</button>
     </form>
     <a href="/analyzer" class="btn btn-outline-secondary btn-sm">← Analyzer</a>
   </div>

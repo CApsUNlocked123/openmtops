@@ -6,8 +6,8 @@
 <div class="card">
   <div class="card-body p-4">
     <h5 class="fw-bold mb-1">Step 1 — Telegram API</h5>
-    <p class="text-secondary small mb-3">
-      OpenMTOps reads trading signals from a Telegram channel. You need a free API key from Telegram.
+    <p class="section-intro mb-3">
+      OpenMTOps reads trading signals from a Telegram channel. This step registers an app on Telegram so we can log in on your behalf — no password is ever stored.
     </p>
 
     <div class="alert alert-secondary small mb-3">
@@ -20,21 +20,21 @@
 
     <form method="POST" action="/setup/step/1">
       <div class="mb-3">
-        <label class="form-label fw-semibold">API ID <span class="text-danger">*</span></label>
-        <input type="number" name="api_id" class="form-control"
+        <label class="form-label-app fw-semibold" for="su1-api-id">API ID <span class="text-danger">*</span></label>
+        <input type="number" id="su1-api-id" name="api_id" class="form-control"
                value="{{ saved_id or '' }}" placeholder="e.g. 12345678" required>
       </div>
       <div class="mb-4">
-        <label class="form-label fw-semibold">API Hash <span class="text-danger">*</span></label>
-        <input type="text" name="api_hash" class="form-control font-monospace"
+        <label class="form-label-app fw-semibold" for="su1-api-hash">API Hash <span class="text-danger">*</span></label>
+        <input type="text" id="su1-api-hash" name="api_hash" class="form-control font-monospace"
                value="{{ saved_hash or '' }}" placeholder="32-character hex string" required>
       </div>
-      <button type="submit" class="btn btn-primary w-100 mb-2">Continue →</button>
+      <button type="submit" class="btn-primary-app w-100 mb-2">Continue →</button>
     </form>
 
     <form method="POST" action="/setup/step/1">
       <input type="hidden" name="action" value="skip_telegram">
-      <button type="submit" class="btn btn-outline-secondary w-100 btn-sm">
+      <button type="submit" class="btn-ghost-app w-100 btn-sm" aria-label="Skip this step — tips and notifications will not work">
         Skip Telegram (tips &amp; notifications won't work)
       </button>
     </form>

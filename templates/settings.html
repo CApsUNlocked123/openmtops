@@ -2,13 +2,16 @@
 {% block title %}Settings{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h3 class="fw-bold mb-0">⚙️ Settings</h3>
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h3 class="fw-bold mb-1">⚙️ Settings</h3>
+    <p class="page-subtitle mb-0">Integrations, credentials, and app access — organized by provider.</p>
+  </div>
   <div class="d-flex gap-2">
     <form method="post" action="/settings/restarting">
-      <button type="submit" class="btn btn-outline-warning btn-sm">↺ Restart</button>
+      <button type="submit" class="btn-ghost-app btn-sm">↺ Restart</button>
     </form>
-    <a href="/" class="btn btn-outline-secondary btn-sm">← Home</a>
+    <a href="/" class="btn-secondary-app btn-sm">← Home</a>
   </div>
 </div>
 <hr class="border-secondary">
@@ -17,44 +20,51 @@
 
   <!-- Telegram Auth Section -->
   <div class="col-md-6">
-    <div class="card border-secondary h-100">
-      <div class="card-header fw-bold">Telegram Authentication</div>
+    <div class="card border-secondary h-100 integration-block">
+      <div class="card-header fw-bold">📱 Telegram Authentication</div>
       <div class="card-body">
+        <p class="section-intro">Log in to Telegram so OpenMTOps can read tips from your subscribed channel.</p>
+
+        <div class="step-pill-row mb-3" aria-label="Authentication progress">
+          <span class="step-pill {% if tg_step != 'code' and tg_step != 'password' and not tg_authorized %}step-pill--active{% elif tg_authorized or tg_step == 'code' or tg_step == 'password' %}step-pill--done{% endif %}">1. Phone</span>
+          <span class="step-pill {% if tg_step == 'code' %}step-pill--active{% elif tg_authorized or tg_step == 'password' %}step-pill--done{% endif %}">2. OTP</span>
+          <span class="step-pill {% if tg_step == 'password' %}step-pill--active{% elif tg_authorized %}step-pill--done{% endif %}">3. 2FA</span>
+        </div>
 
         {% if tg_authorized %}
           <div class="alert alert-success">✅ Telegram is authenticated</div>
           <form method="post" action="/settings/tg/reauth">
-            <button type="submit" class="btn btn-outline-warning btn-sm">Re-authenticate</button>
+            <button type="submit" class="btn-ghost-app btn-sm">Re-authenticate</button>
           </form>
 
         {% elif tg_step == 'code' %}
-          <p class="text-secondary small">Enter the code sent to your phone.</p>
+          <p class="help-text mb-2">Enter the code sent to your phone.</p>
           <form method="post" action="/settings/tg/code">
             <div class="mb-3">
-              <label class="form-label">Verification Code</label>
-              <input type="text" name="code" class="form-control" placeholder="12345" autofocus required>
+              <label class="form-label-app" for="s-tg-code">Verification Code</label>
+              <input type="text" id="s-tg-code" name="code" class="form-control" placeholder="12345" autofocus required>
             </div>
-            <button type="submit" class="btn btn-primary w-100">Verify Code</button>
+            <button type="submit" class="btn-primary-app w-100">Verify Code</button>
           </form>
 
         {% elif tg_step == 'password' %}
-          <p class="text-secondary small">Enter your 2-FA cloud password.</p>
+          <p class="help-text mb-2">Enter your 2-FA cloud password.</p>
           <form method="post" action="/settings/tg/2fa">
             <div class="mb-3">
-              <label class="form-label">2-FA Password</label>
-              <input type="password" name="password" class="form-control" autofocus required>
+              <label class="form-label-app" for="s-tg-pw">2-FA Password</label>
+              <input type="password" id="s-tg-pw" name="password" class="form-control" autofocus required>
             </div>
-            <button type="submit" class="btn btn-primary w-100">Submit Password</button>
+            <button type="submit" class="btn-primary-app w-100">Submit Password</button>
           </form>
 
         {% else %}
-          <p class="text-secondary small">Not authenticated. Enter your phone number to receive an OTP.</p>
+          <p class="help-text mb-2">Not authenticated. Enter your phone number to receive an OTP.</p>
           <form method="post" action="/settings/tg/phone">
             <div class="mb-3">
-              <label class="form-label">Phone Number (with country code)</label>
-              <input type="tel" name="phone" class="form-control" placeholder="+919876543210" autofocus required>
+              <label class="form-label-app" for="s-tg-phone">Phone Number (with country code)</label>
+              <input type="tel" id="s-tg-phone" name="phone" class="form-control" placeholder="+919876543210" autofocus required>
             </div>
-            <button type="submit" class="btn btn-primary w-100">Send Code</button>
+            <button type="submit" class="btn-primary-app w-100">Send Code</button>
           </form>
         {% endif %}
 
@@ -64,30 +74,32 @@
 
   <!-- Dhan API Section -->
   <div class="col-md-6">
-    <div class="card border-secondary h-100">
-      <div class="card-header fw-bold">Dhan API Credentials</div>
+    <div class="card border-secondary h-100 integration-block">
+      <div class="card-header fw-bold">🔑 Dhan API Credentials</div>
       <div class="card-body">
+        <p class="section-intro">Required for live market data and order placement. Token is stored encrypted.</p>
         <p class="small text-secondary mb-3">
           Current Client ID: <code>{{ client_id }}</code><br>
           Current Token: <code>{{ masked_token }}</code>
         </p>
 
         <form method="post" action="/settings/dhan/test" class="mb-3">
-          <button type="submit" class="btn btn-outline-info btn-sm">Test Connection</button>
+          <button type="submit" class="btn-secondary-app btn-sm">Test Connection</button>
         </form>
 
         <form method="post" action="/settings/dhan">
           <div class="mb-3">
-            <label class="form-label">Client ID</label>
-            <input type="text" name="client_id" class="form-control"
+            <label class="form-label-app" for="s-dhan-cid">Client ID</label>
+            <input type="text" id="s-dhan-cid" name="client_id" class="form-control"
                    value="{{ client_id }}" required>
           </div>
           <div class="mb-3">
-            <label class="form-label">Access Token</label>
-            <textarea name="access_token" class="form-control font-monospace" rows="3"
+            <label class="form-label-app" for="s-dhan-token">Access Token</label>
+            <textarea id="s-dhan-token" name="access_token" class="form-control font-monospace" rows="3"
                       placeholder="Paste new JWT token here" required></textarea>
+            <p class="help-text">JWT tokens expire every 24h — regenerate from the Dhan web app.</p>
           </div>
-          <button type="submit" class="btn btn-primary w-100">💾 Save Credentials</button>
+          <button type="submit" class="btn-primary-app w-100">💾 Save Credentials</button>
         </form>
 
       </div>
@@ -96,28 +108,27 @@
 
   <!-- Telegram API Credentials -->
   <div class="col-md-6">
-    <div class="card border-secondary">
+    <div class="card border-secondary integration-block">
       <div class="card-header fw-bold">
-        Telegram API Credentials
+        🔗 Telegram API Credentials
         <span class="badge bg-secondary ms-2 fw-normal small">rarely changed</span>
       </div>
       <div class="card-body">
-        <p class="small text-secondary mb-3">
-          The API ID and Hash from <a href="https://my.telegram.org/apps" target="_blank" rel="noopener">my.telegram.org</a>.
-          Only update if you rotate your Telegram app credentials.
+        <p class="section-intro">
+          Get your API ID and Hash from <a href="https://my.telegram.org/apps" target="_blank" rel="noopener">my.telegram.org</a> — only update if you rotate Telegram credentials.
         </p>
         <form method="post" action="/settings/telegram/api">
           <div class="mb-3">
-            <label class="form-label">API ID</label>
-            <input type="number" name="api_id" class="form-control"
+            <label class="form-label-app" for="s-tg-api-id">API ID</label>
+            <input type="number" id="s-tg-api-id" name="api_id" class="form-control"
                    value="{{ tg_api_id or '' }}" placeholder="e.g. 12345678">
           </div>
           <div class="mb-3">
-            <label class="form-label">API Hash</label>
-            <input type="text" name="api_hash" class="form-control font-monospace"
+            <label class="form-label-app" for="s-tg-api-hash">API Hash</label>
+            <input type="text" id="s-tg-api-hash" name="api_hash" class="form-control font-monospace"
                    value="{{ tg_api_hash or '' }}" placeholder="32-character hex">
           </div>
-          <button type="submit" class="btn btn-outline-primary w-100">Update API Credentials</button>
+          <button type="submit" class="btn-secondary-app w-100">Update API Credentials</button>
         </form>
       </div>
     </div>
@@ -125,20 +136,20 @@
 
   <!-- Telegram Channel -->
   <div class="col-md-6">
-    <div class="card border-secondary">
-      <div class="card-header fw-bold">Telegram Channel</div>
+    <div class="card border-secondary integration-block">
+      <div class="card-header fw-bold">📡 Telegram Channel</div>
       <div class="card-body">
-        <p class="small text-secondary mb-3">
+        <p class="section-intro">
           The channel or group OpenMTOps monitors for trading tips.
-          Use a Telegram bot like <code>@userinfobot</code> to find a channel ID.
         </p>
         <form method="post" action="/settings/telegram/channel">
           <div class="mb-3">
-            <label class="form-label">Channel ID</label>
-            <input type="text" name="channel_id" class="form-control font-monospace"
+            <label class="form-label-app" for="s-tg-channel">Channel ID</label>
+            <input type="text" id="s-tg-channel" name="channel_id" class="form-control font-monospace"
                    value="{{ current_channel_id or '' }}" placeholder="-1001234567890">
+            <p class="help-text">Find via <code>@userinfobot</code> or the channel's invite link.</p>
           </div>
-          <button type="submit" class="btn btn-outline-primary w-100">Update Channel</button>
+          <button type="submit" class="btn-secondary-app w-100">Update Channel</button>
         </form>
       </div>
     </div>
@@ -146,22 +157,21 @@
 
   <!-- Access PIN -->
   <div class="col-md-6">
-    <div class="card border-secondary">
-      <div class="card-header fw-bold">Access PIN</div>
+    <div class="card border-secondary integration-block">
+      <div class="card-header fw-bold">🔒 Access PIN</div>
       <div class="card-body">
-        <p class="small text-secondary mb-3">
-          If set, all browser sessions require this PIN before accessing the app.
-          Leave blank to disable.
+        <p class="section-intro">
+          If set, all browser sessions require this PIN before accessing the app. Leave blank to disable.
           {% if pin_set %}<br><span class="text-success">✅ PIN is currently enabled.</span>{% endif %}
         </p>
         <form method="post" action="/settings/pin">
           <div class="mb-3">
-            <label class="form-label">New PIN (4–8 digits)</label>
-            <input type="password" name="pin" class="form-control"
+            <label class="form-label-app" for="s-pin">New PIN (4–8 digits)</label>
+            <input type="password" id="s-pin" name="pin" class="form-control"
                    placeholder="Leave blank to disable" inputmode="numeric"
                    maxlength="8" autocomplete="new-password">
           </div>
-          <button type="submit" class="btn btn-outline-primary w-100">Update PIN</button>
+          <button type="submit" class="btn-secondary-app w-100">Update PIN</button>
         </form>
       </div>
     </div>

@@ -342,10 +342,17 @@ openmtops/
 ├── trades/                    # Auto-created; one JSON per completed trade
 ├── data/                      # Auto-created by candle_service; SQLite DB
 ├── deployment/
-│   ├── openmtops.service      # systemd unit (edit paths before use)
-│   ├── nginx.conf             # Nginx reverse proxy with WebSocket support
-│   └── INSTALL.md             # Step-by-step VPS setup guide
+│   ├── openmtops.service      # systemd unit (legacy — use Docker instead)
+│   ├── nginx.conf             # Nginx reverse proxy reference config
+│   └── INSTALL.md             # Step-by-step Docker VPS deployment guide
 │
+├── nginx/
+│   └── nginx.conf             # Production Nginx config (edit domains, then Docker mounts this)
+│
+├── Dockerfile                 # Python 3.11-slim image for the app
+├── docker-compose.yml         # App + Nginx services with volume mounts
+├── .dockerignore              # Excludes venv, secrets, data from image
+├── start.sh                   # Linux/macOS launcher (local dev)
 ├── requirements.txt
 ├── .env.example               # Credential template — copy to .env
 └── .gitignore
@@ -371,15 +378,18 @@ openmtops/
 
 ## Production Hosting
 
-See [deployment/INSTALL.md](deployment/INSTALL.md) for full step-by-step instructions.
+See [deployment/INSTALL.md](deployment/INSTALL.md) for the full Docker + Nginx + SSL guide.
 
 Quick overview:
-1. Clone to your server; create virtualenv; install DhanHQ from GitHub + `requirements.txt`
-2. Copy `.env.example` → `.env`, fill in credentials
-3. Edit `deployment/openmtops.service` with your install path
-4. `systemctl enable --now openmtops`
-5. Configure Nginx as a reverse proxy (handles WebSocket upgrade headers)
-6. Open the app URL — first visit runs the setup wizard if `.env` is incomplete
+1. Point DNS A records for your domain(s) to your VPS IP
+2. Install Docker on the VPS (Hostinger Docker Manager or `apt install docker.io docker-compose-plugin`)
+3. Get SSL certs via certbot
+4. Edit `nginx/nginx.conf` — replace the domain placeholders with your actual domains
+5. `rsync` the project to `/opt/openmtops/` on the VPS (secrets included — they are gitignored)
+6. `docker compose build && docker compose up -d`
+7. Whitelist your VPS IP in Dhan's API settings
+
+The app runs on port 5000 internally; Nginx handles 80 → HTTPS redirect and WebSocket proxying on 443.
 
 ---
 

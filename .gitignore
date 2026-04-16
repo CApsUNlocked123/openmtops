@@ -28,10 +28,14 @@ venv/
 .venv/
 env/
 
-# ── SQLite journals ──────────────────────────────────────────────────────────
+# ── SQLite ───────────────────────────────────────────────────────────────────
+*.db
 *.db-journal
 *.db-wal
 *.db-shm
+
+# ── SSL certificates (never commit private keys) ─────────────────────────────
+/etc/letsencrypt/
 
 # ── SSH / key material ───────────────────────────────────────────────────────
 *.pem

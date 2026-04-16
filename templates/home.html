@@ -39,53 +39,43 @@
 </div>
 
 <!-- ── P&L stat row ─────────────────────────────────────────────────────── -->
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-4 pnl-row">
 
   <div class="col-6 col-md-3">
-    <div class="stat-card stat-card-accent {% if summary.today_pnl >= 0 %}accent-green{% else %}accent-red{% endif %}">
-      <div class="d-flex justify-content-between align-items-start gap-2">
-        <div style="min-width:0;">
-          <div class="stat-label">Today P&amp;L<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Net realized profit/loss from trades closed since midnight (local time).</span></details></div>
-          <div class="stat-number" id="today-pnl"
-               style="color:{% if summary.today_pnl >= 0 %}var(--green){% else %}var(--red){% endif %}; font-size:1.45rem;">
-            {% if summary.today_pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(summary.today_pnl) }}
-          </div>
-          <div class="stat-sub" id="today-pnl-sub">realized today</div>
-        </div>
-        <canvas id="spark-today" class="sparkline-canvas" width="72" height="32"></canvas>
+    <div class="stat-card stat-card-accent pnl-card {% if summary.today_pnl >= 0 %}accent-green{% else %}accent-red{% endif %}">
+      <div class="stat-label">Today P&amp;L<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Net realized profit/loss from trades closed since midnight (local time).</span></details></div>
+      <div class="stat-number pnl-value" id="today-pnl"
+           style="color:{% if summary.today_pnl >= 0 %}var(--green){% else %}var(--red){% endif %};">
+        {% if summary.today_pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(summary.today_pnl) }}
       </div>
+      <div class="stat-sub" id="today-pnl-sub">realized today</div>
     </div>
   </div>
 
   <div class="col-6 col-md-3">
-    <div class="stat-card stat-card-accent accent-purple">
-      <div class="d-flex justify-content-between align-items-start gap-2">
-        <div style="min-width:0;">
-          <div class="stat-label">All-time P&amp;L<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Cumulative net P&amp;L across every closed trade in your history.</span></details></div>
-          <div class="stat-number" id="total-pnl"
-               style="color:{% if summary.pnl >= 0 %}var(--green){% else %}var(--red){% endif %}; font-size:1.45rem;">
-            {% if summary.pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(summary.pnl) }}
-          </div>
-          <div class="stat-sub">{{ summary.total }} trades</div>
-        </div>
-        <canvas id="spark-alltime" class="sparkline-canvas" width="72" height="32"></canvas>
+    <div class="stat-card stat-card-accent pnl-card accent-purple">
+      <div class="stat-label">All-time P&amp;L<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Cumulative net P&amp;L across every closed trade in your history.</span></details></div>
+      <div class="stat-number pnl-value" id="total-pnl"
+           style="color:{% if summary.pnl >= 0 %}var(--green){% else %}var(--red){% endif %};">
+        {% if summary.pnl >= 0 %}+{% endif %}₹{{ "%.0f"|format(summary.pnl) }}
       </div>
+      <div class="stat-sub">{{ summary.total }} trades</div>
     </div>
   </div>
 
   <div class="col-6 col-md-3">
-    <div class="stat-card stat-card-accent accent-blue">
+    <div class="stat-card stat-card-accent pnl-card accent-blue">
       <div class="stat-label">Win Rate<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Percentage of closed trades that ended profitable: wins / (wins + losses).</span></details></div>
-      <div class="stat-number" id="win-rate" style="font-size:1.45rem;">{{ summary.win_rate }}%</div>
+      <div class="stat-number pnl-value" id="win-rate">{{ summary.win_rate }}%</div>
       <div class="stat-sub" id="wins-losses">{{ summary.wins }}W / {{ summary.losses }}L</div>
     </div>
   </div>
 
   <div class="col-6 col-md-3">
-    <div class="stat-card stat-card-accent accent-orange">
+    <div class="stat-card stat-card-accent pnl-card accent-orange">
       <div class="stat-label">Open Positions<details class="tip"><summary aria-label="Help">?</summary><span class="tip__bubble">Count of positions currently held with your broker (via Dhan).</span></details></div>
-      <div class="stat-number" id="positions-count"
-           style="{% if dhan.count > 0 %}color:var(--orange){% endif %}; font-size:1.45rem;">
+      <div class="stat-number pnl-value" id="positions-count"
+           style="{% if dhan.count > 0 %}color:var(--orange){% endif %}">
         {{ dhan.count }}
       </div>
       <div class="stat-sub">{% if dhan.ok %}via Dhan{% else %}offline{% endif %}</div>
@@ -255,29 +245,6 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
-  // ── Sparkline (drawn once, no axes) ──────────────────────────────────────
-  const _sparkInstances = {};
-  function _drawSparkline(canvasId, values, color) {
-    const el = document.getElementById(canvasId);
-    if (!el || !values || !values.length || typeof Chart === 'undefined') return;
-    if (_sparkInstances[canvasId]) _sparkInstances[canvasId].destroy();
-    _sparkInstances[canvasId] = new Chart(el, {
-      type: 'line',
-      data: {
-        labels: values.map(function (_, i) { return i; }),
-        datasets: [{
-          data: values, borderColor: color, borderWidth: 1.5,
-          pointRadius: 0, fill: false, tension: 0.4
-        }]
-      },
-      options: {
-        animation: false,
-        plugins: { legend: { display: false } },
-        scales:  { x: { display: false }, y: { display: false } }
-      }
-    });
-  }
-
   // ── Main intraday area chart ───────────────────────────────────────────────
   let _mainChart = null;
   function _drawMainChart(labels, closes) {
@@ -293,15 +260,15 @@
     if (emptyEl) emptyEl.classList.add('d-none');
     const ctx = el.getContext('2d');
     const g   = ctx.createLinearGradient(0, 0, 0, 200);
-    g.addColorStop(0, 'rgba(124,58,237,0.28)');
-    g.addColorStop(1, 'rgba(124,58,237,0)');
+    g.addColorStop(0, 'rgba(96,165,250,0.28)');
+    g.addColorStop(1, 'rgba(96,165,250,0)');
     if (_mainChart) _mainChart.destroy();
     _mainChart = new Chart(ctx, {
       type: 'line',
       data: {
         labels: labels,
         datasets: [{
-          data: closes, borderColor: '#7C3AED',
+          data: closes, borderColor: '#60A5FA',
           backgroundColor: g, fill: true,
           tension: 0.35, pointRadius: 0, borderWidth: 2
         }]
@@ -343,8 +310,6 @@
   });
 
   // ── Snapshot polling ──────────────────────────────────────────────────────
-  let _sparksDrawn = false;
-
   function _apply(data) {
     // Index prices
     const idx = data.indices || {};
@@ -379,17 +344,6 @@
     if (pcEl && data.open_count != null) {
       pcEl.textContent  = data.open_count;
       pcEl.style.color  = data.open_count > 0 ? 'var(--orange)' : 'var(--text-primary)';
-    }
-
-    // Sparklines — drawn once after first data arrives
-    if (!_sparksDrawn && s.pnl_series && s.pnl_series.length) {
-      _sparksDrawn = true;
-      const series   = s.pnl_series.slice().reverse(); // oldest first
-      const cumSum   = [];
-      let acc = 0;
-      series.forEach(function (v) { acc += v; cumSum.push(acc); });
-      _drawSparkline('spark-today',   series,  '#22C55E');
-      _drawSparkline('spark-alltime', cumSum,  '#7C3AED');
     }
 
     // Active trade card

@@ -56,18 +56,26 @@ def get_status() -> dict:
 # ── internal ──────────────────────────────────────────────────────────────────
 
 def _rebuild():
-    """Merge all subscriber instrument lists and restart feed only if changed."""
+    """Merge all subscriber instrument lists and restart feed only if changed.
+
+    If two subscribers request the same (exchange, security_id) under different
+    sub_types (e.g. OI tracker wants Full for OI field, watch wants Quote for
+    LTP), we keep the richest sub_type so a single subscription satisfies both.
+    Full (21) > Quote (17) > Ticker (15).
+    """
     import price_feed
     from dhan_broker import dhan_context
 
-    merged = []
-    seen   = set()
+    by_key: dict = {}   # (exch, sid) → (exch, sid, sub_type) with highest rank
     for sub in _subscribers.values():
         for instr in sub["instruments"]:
-            key = (instr[0], str(instr[1]), instr[2])
-            if key not in seen:
-                seen.add(key)
-                merged.append(instr)
+            key = (instr[0], str(instr[1]))
+            existing = by_key.get(key)
+            if existing is None or int(instr[2]) > int(existing[2]):
+                by_key[key] = (instr[0], str(instr[1]), instr[2])
+
+    merged = list(by_key.values())
+    seen   = set(merged)
 
     if frozenset(seen) == frozenset(_active_instruments):
         return   # no change — leave existing connection alone

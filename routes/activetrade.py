@@ -70,7 +70,12 @@ def _init_trade_from_session(params: dict) -> None:
         t1_hit         = False,
     )
 
+    _first_tick_logged = {"v": False}
+
     def on_tick(sid, tick):
+        if not _first_tick_logged["v"]:
+            print(f"[activetrade_watch] first tick sid={sid} trade_sid={_live._trade.get('security_id')} keys={list(tick.keys())} LTP={tick.get('LTP')!r}")
+            _first_tick_logged["v"] = True
         ltp = float(tick.get("LTP") or 0)
         if _live._sio:
             _live._sio.emit("tick", {
@@ -84,13 +89,12 @@ def _init_trade_from_session(params: dict) -> None:
     # Register the watch through feed_manager so it coexists with other
     # subscribers (e.g. OI tracker). Using price_feed.start_feed directly
     # would stop any running shared feed and wipe those subscriptions.
-    feed_manager.subscribe(
-        "activetrade_watch",
-        [(_live._exch_segment(params.get("exchange_segment", "NSE_FNO")),
-          str(params["security_id"]),
-          _live._feed_mode(params.get("exchange_segment", "NSE_FNO")))],
-        on_tick=on_tick,
-    )
+    exch_seg = params.get("exchange_segment", "NSE_FNO")
+    watch_instr = (_live._exch_segment(exch_seg), str(params["security_id"]), _live._feed_mode(exch_seg))
+    print(f"[activetrade_watch] subscribing instr={watch_instr} exch_seg={exch_seg!r} sid={params['security_id']!r}")
+    feed_manager.subscribe("activetrade_watch", [watch_instr], on_tick=on_tick)
+    import price_feed as _pf
+    print(f"[activetrade_watch] subscribe done — feed_status={_pf.feed_status()} subs={feed_manager.get_status()}")
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

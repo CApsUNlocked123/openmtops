@@ -12,6 +12,7 @@ from flask import Blueprint, render_template, session, redirect, request, jsonif
 from math import floor
 
 import price_feed
+import feed_manager
 from dhan_broker import dhan, dhan_context, lookup_security
 from candle_service import INSTRUMENT_NAMES
 
@@ -80,8 +81,11 @@ def _init_trade_from_session(params: dict) -> None:
         if ltp > 0:
             _live._check_auto_trade(sid, ltp)
 
-    price_feed.start_feed(
-        dhan_context,
+    # Register the watch through feed_manager so it coexists with other
+    # subscribers (e.g. OI tracker). Using price_feed.start_feed directly
+    # would stop any running shared feed and wipe those subscriptions.
+    feed_manager.subscribe(
+        "activetrade_watch",
         [(_live._exch_segment(params.get("exchange_segment", "NSE_FNO")),
           str(params["security_id"]),
           _live._feed_mode(params.get("exchange_segment", "NSE_FNO")))],
@@ -179,7 +183,7 @@ def activetrade_cancel():
     import routes.live as _live
     state = _live._trade.get("state")
     if state not in ("active", "ordering", "exiting", "exiting_guard"):
-        price_feed.stop_feed()
+        feed_manager.unsubscribe("activetrade_watch")
         _live._trade.update(state="idle")
     session.pop("watching", None)
     return redirect("/trade")

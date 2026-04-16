@@ -6,13 +6,35 @@
 
 ## Screenshots
 
-| Screen | Description |
-|--------|-------------|
-| **Dashboard** | Live P&L summary, index prices, open position card |
-| **ActiveTrade** | 80/20 split — strategy dashboard left, live trade panel right |
-| **ActiveScan** | Pluggable strategy widgets with real-time signals |
-| **ActiveTip** | Telegram F&O signal cards with one-click execution |
-| **Profile** | Trade history + credential management |
+### Dashboard
+Live index prices, P&L summary, win rate, open positions, and the intraday index chart — all at a glance.
+
+![Dashboard](assets/homepage.jpg)
+
+### ActiveTrade
+80/20 split — full strategy context on the left, compact live-trade panel on the right. Watch → auto-buy → partial exit at T1 → trailing SL → full exit at T2, all hands-free.
+
+![ActiveTrade](assets/ActiveTrade.jpg)
+
+### ActiveScan — Strategy Signals
+Pluggable strategy widgets with real-time BUY / NO_TRADE / WAIT signals. One click pre-fills the trade form.
+
+![ActiveScan](assets/ActiveScan%20Signals.jpg)
+
+### OI Scanning
+Per-strike Open Interest tracking with buildup classification, wall detection, and live delta updates.
+
+![OI Scanning](assets/OI%20Scanning.jpg)
+
+### Profile & Settings
+Trade history, Dhan + Telegram credential management, and re-authentication — all in one tabbed screen.
+
+![Profile & Settings](assets/ProfileSettings.jpg)
+
+### Closed Trades
+Completed-trade ledger with entry/exit, lots, quantity, and color-coded P&L.
+
+![Closed Trades](assets/clsoedtrade.jpg)
 
 ---
 

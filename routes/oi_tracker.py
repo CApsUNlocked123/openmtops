@@ -182,7 +182,14 @@ def _on_tick(sid: str, tick: dict):
 
     cur = _tracker.get("current", {})
     if sid not in cur:
+        log.debug("[oi_tracker] tick for unknown sid=%s type=%s", sid, tick.get("type"))
         return
+
+    # One-shot diagnostic: log first tick that reaches the option-leg branch
+    if not _tracker.get("_first_opt_tick_logged"):
+        log.info("[oi_tracker] first option tick sid=%s type=%s LTP=%s OI=%s keys=%s",
+                 sid, tick.get("type"), ltp, oi, list(tick.keys()))
+        _tracker["_first_opt_tick_logged"] = True
 
     if ltp > 0:
         cur[sid]["ltp"] = ltp
@@ -236,7 +243,19 @@ def start_for_instrument(instrument: str) -> dict:
     global _tracker
 
     if _tracker.get("state") == "tracking":
-        return {"ok": True, "already_tracking": True}
+        # Sanity check — only treat as "already tracking" if the underlying
+        # WebSocket feed is actually connected. Otherwise the tracker state
+        # is stale (e.g. app restarted mid-session, feed dropped silently)
+        # and we should re-subscribe.
+        try:
+            import price_feed
+            if price_feed.feed_status() == "connected":
+                return {"ok": True, "already_tracking": True}
+            log.warning("[oi_tracker] tracker=tracking but feed_status=%s — forcing restart",
+                        price_feed.feed_status())
+            _tracker = {"state": "idle"}
+        except Exception:
+            _tracker = {"state": "idle"}
 
     try:
         from routes.analyzer import INDICES
@@ -342,9 +361,11 @@ def start_for_instrument(instrument: str) -> dict:
         }
 
         import feed_manager
+        log.info("[oi_tracker] subscribing to feed: %s ATM=%s strikes=%s feed_count=%d",
+                 instrument, atm_strike, selected_strikes, len(feed_instruments))
         feed_manager.subscribe("oi_tracker", feed_instruments, on_tick=_on_tick)
-        log.info("[oi_tracker] dashboard auto-start: %s ATM=%s strikes=%s",
-                 instrument, atm_strike, selected_strikes)
+        import price_feed
+        log.info("[oi_tracker] subscribe done — feed_status=%s", price_feed.feed_status())
         return {"ok": True, "atm_strike": atm_strike, "strikes": selected_strikes}
 
     except Exception as e:

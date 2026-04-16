@@ -12,6 +12,7 @@ from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, session, flash
 
 import price_feed
+import feed_manager
 from dhan_broker import dhan, dhan_context
 from dhanhq import MarketFeed
 
@@ -171,7 +172,7 @@ def _do_exit(ltp: float, reason: str):
         })
 
     _trade.update(state="idle", buy_price=None, order_id=None, exit_order_id=exit_oid)
-    price_feed.stop_feed()
+    feed_manager.unsubscribe("activetrade_watch")
 
 
 def _do_partial_exit(ltp: float, qty: int):
@@ -353,8 +354,8 @@ def live_page():
                 _check_auto_trade(sid, ltp)
 
         print(f"[live] starting feed for security_id={params['security_id']}, lots={lots}, qty={lots * lot_size}")
-        price_feed.start_feed(
-            dhan_context,
+        feed_manager.subscribe(
+            "activetrade_watch",
             [(_exch_segment(params.get("exchange_segment", "NSE_FNO")), str(params["security_id"]), _feed_mode(params.get("exchange_segment", "NSE_FNO")))],
             on_tick=on_tick,
         )
@@ -390,7 +391,7 @@ def exit_trade():
 @bp.route("/live/back", methods=["POST"])
 def live_back():
     """Cancel watching and go home."""
-    price_feed.stop_feed()
+    feed_manager.unsubscribe("activetrade_watch")
     _trade.update(state="idle")
     session.pop("watching", None)
     return redirect("/")

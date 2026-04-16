@@ -1,6 +1,12 @@
 # OpenMTOps — F&O Options Trading Assistant
 
-> Self-hosted Flask + SocketIO web app for Indian F&O trading. Reads signals from Telegram, executes trades into Dhan brokerage, monitors positions live, and surfaces a full strategy dashboard with OI analysis — all from a single browser tab.
+> HFT algos and institutional desks have sub-millisecond tools. Retail traders get a basic chart.
+>
+> **OpenMTOps bridges that gap** — a free, self-hosted F&O assistant that reads your Telegram signals, executes on Dhan, and tracks OI walls, max pain, and regime in real time. All from a single browser tab on your own machine.
+
+> ⚠️ **Not financial advice. Not SEBI-registered.** See [DISCLAIMER.md](DISCLAIMER.md) before you use this software with real money.
+
+**Under the hood:** Flask + SocketIO, DhanHQ WebSocket market feed, Telethon for Telegram, SQLite candle store, pluggable strategy widgets.
 
 ---
 

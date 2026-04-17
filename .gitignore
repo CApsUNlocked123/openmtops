@@ -1,6 +1,7 @@
 # ── Credentials & runtime config ────────────────────────────────────────────
 .env
 .env.*
+.env.nginx
 config.json
 runtime_config.json
 dhan_token.json

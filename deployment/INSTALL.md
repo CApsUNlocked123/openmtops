@@ -15,12 +15,17 @@ Tested on: **Ubuntu 24.04 LTS**, Hostinger KVM VPS (2 CPU / 8 GB RAM)
 
 ## Phase 1 — DNS
 
-In your domain registrar, add A records for every domain pointing to your VPS IP:
+In your domain registrar, add A records for **every domain and subdomain** pointing to your VPS IP:
 
-| Type | Name | Value |
-|------|------|-------|
-| A | `@` | `<your-vps-ip>` |
-| A | `www` | `<your-vps-ip>` |
+| Domain | Type | Name | Value |
+|--------|------|------|-------|
+| Primary | A | `@` | `<your-vps-ip>` |
+| Primary | A | `www` | `<your-vps-ip>` |
+| Primary | A | `app` | `<your-vps-ip>` |
+| Secondary | A | `@` | `<your-vps-ip>` |
+| Secondary | A | `www` | `<your-vps-ip>` |
+
+The `app` subdomain (`app.YOUR_PRIMARY_DOMAIN`) is where the trading app lives. The root domain serves the public website.
 
 > DNS propagation takes 10–30 minutes. Do this first.
 
@@ -45,19 +50,26 @@ ssh root@<your-vps-ip>
 apt install -y certbot
 ```
 
-Get certs for all your domains. Port 80 must be free (stop system nginx/apache first if running):
+Get certs covering all domains including the app subdomain. Port 80 must be free (stop system nginx/apache first if running):
 
 ```bash
 certbot certonly --standalone \
-  -d YOUR_PRIMARY_DOMAIN.com -d www.YOUR_PRIMARY_DOMAIN.com \
-  -d YOUR_SECONDARY_DOMAIN.com -d www.YOUR_SECONDARY_DOMAIN.com \
+  -d YOUR_PRIMARY_DOMAIN -d www.YOUR_PRIMARY_DOMAIN -d app.YOUR_PRIMARY_DOMAIN \
+  -d YOUR_SECONDARY_DOMAIN -d www.YOUR_SECONDARY_DOMAIN \
   --agree-tos -m your@email.com --non-interactive
 ```
 
 > If system nginx is already running on port 80, use `--nginx` instead of `--standalone`.
 > If certbot times out, ensure ports 80 and 443 are open in your VPS firewall panel.
 
-Certs are saved to `/etc/letsencrypt/live/YOUR_PRIMARY_DOMAIN.com/`.
+Certs are saved to `/etc/letsencrypt/live/YOUR_PRIMARY_DOMAIN/`.
+
+**To expand an existing cert** (if you already have one without the app subdomain):
+```bash
+certbot certonly --nginx --expand \
+  -d YOUR_PRIMARY_DOMAIN -d www.YOUR_PRIMARY_DOMAIN -d app.YOUR_PRIMARY_DOMAIN \
+  -d YOUR_SECONDARY_DOMAIN -d www.YOUR_SECONDARY_DOMAIN
+```
 
 ---
 
@@ -69,6 +81,22 @@ Edit `nginx/nginx.conf` — replace the placeholder domain names with your actua
 YOUR_PRIMARY_DOMAIN.com    → your main domain (e.g. example.in)
 YOUR_SECONDARY_DOMAIN.com  → your secondary domain (e.g. example.com)
 ```
+
+---
+
+## Phase 4b — Configure Domain Names
+
+Create `.env.nginx` on the VPS (this file is gitignored — never committed):
+
+```bash
+cat > /opt/openmtops/.env.nginx <<EOF
+PRIMARY_DOMAIN=your-primary-domain.com
+APP_SUBDOMAIN=app.your-primary-domain.com
+SECONDARY_DOMAIN=your-secondary-domain.com
+EOF
+```
+
+This is read by Docker Compose at startup. The nginx config template uses these vars via `envsubst`.
 
 ---
 

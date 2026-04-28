@@ -55,6 +55,12 @@
         <span class="sidebar-link__icon" aria-hidden="true">📡</span>
         <span class="sidebar-link__label">ActiveTip</span>
       </a>
+      <a href="/pov"
+         aria-label="POV"
+         class="sidebar-link {% if request.path.startswith('/pov') %}active{% endif %}">
+        <span class="sidebar-link__icon" aria-hidden="true">🎯</span>
+        <span class="sidebar-link__label">POV</span>
+      </a>
       <a href="/profile"
          aria-label="Profile"
          class="sidebar-link {% if request.path.startswith('/profile') %}active{% endif %}">

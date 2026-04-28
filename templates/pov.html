@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}POV — Pattern OI Velocity{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h5 class="mb-0 fw-semibold" style="color:var(--text-primary)">
+      🎯 POV <span style="color:var(--text-secondary);font-weight:400;font-size:.85rem">Pattern OI Velocity</span>
+    </h5>
+    <p class="mb-0 mt-1" style="font-size:.78rem;color:var(--text-secondary)">
+      Watches 6 strikes live and fires a short-squeeze signal on 1-min candle pattern (5 conditions).
+    </p>
+  </div>
+  <div id="pov-status-pill" style="display:none">
+    <span class="badge-buy" id="pov-active-badge">● ACTIVE</span>
+  </div>
+</div>
+
+<!-- ── Setup form ─────────────────────────────────────────────────────────── -->
+<div class="stat-card mb-4" id="pov-setup-card">
+  <div class="stat-label mb-3">CONFIGURE WATCH</div>
+  <form id="pov-form" class="row g-3 align-items-end">
+    <div class="col-6 col-md-2">
+      <label class="stat-label d-block mb-1">Symbol</label>
+      <select id="pov-symbol" class="form-select form-select-sm" style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary)">
+        <option>NIFTY</option>
+        <option>BANKNIFTY</option>
+        <option>FINNIFTY</option>
+        <option>MIDCPNIFTY</option>
+        <option>SENSEX</option>
+      </select>
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="stat-label d-block mb-1">Expiry <span style="color:var(--text-label)">(reference)</span></label>
+      <input id="pov-expiry" type="text" class="form-control form-control-sm" placeholder="e.g. 2025-01-30"
+             style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary)">
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="stat-label d-block mb-1">ATM Strike</label>
+      <input id="pov-atm" type="number" class="form-control form-control-sm" placeholder="e.g. 25000"
+             style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary)">
+    </div>
+    <div class="col-6 col-md-2">
+      <label class="stat-label d-block mb-1">Strike Gap</label>
+      <input id="pov-gap" type="number" class="form-control form-control-sm" value="50"
+             style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary)">
+    </div>
+    <div class="col-12 col-md-2 d-flex gap-2">
+      <button type="submit" id="pov-start-btn" class="btn btn-sm w-100"
+              style="background:var(--blue);color:#fff;border:none;font-weight:600">
+        ▶ Start
+      </button>
+      <button type="button" id="pov-stop-btn" class="btn btn-sm w-100"
+              style="background:var(--bg-card-raised);color:var(--text-secondary);border:1px solid var(--border);display:none">
+        ■ Stop
+      </button>
+    </div>
+  </form>
+  <div id="pov-error" class="mt-2" style="font-size:.8rem;color:var(--red);display:none"></div>
+  <div id="pov-info"  class="mt-2" style="font-size:.78rem;color:var(--text-secondary);display:none"></div>
+</div>
+
+<!-- ── 6 strike cards (CE left · PE right) ───────────────────────────────── -->
+<div id="pov-cards-section" style="display:none">
+  <div class="row g-3 mb-4">
+    <!-- CE column -->
+    <div class="col-12 col-md-6">
+      <div class="stat-label mb-2">CALL SIDE (CE)</div>
+      <div id="pov-ce-cards"></div>
+    </div>
+    <!-- PE column -->
+    <div class="col-12 col-md-6">
+      <div class="stat-label mb-2">PUT SIDE (PE)</div>
+      <div id="pov-pe-cards"></div>
+    </div>
+  </div>
+
+  <!-- ── Signal log ─────────────────────────────────────────────────────── -->
+  <div class="stat-card">
+    <div class="stat-label mb-3">SIGNAL LOG <span id="pov-log-count" style="color:var(--text-label)"></span></div>
+    <div style="overflow-x:auto">
+      <table class="table table-sm mb-0" style="font-size:.8rem;color:var(--text-secondary)">
+        <thead>
+          <tr style="border-color:var(--border)">
+            <th style="color:var(--text-label);font-weight:500;border:none">Time</th>
+            <th style="color:var(--text-label);font-weight:500;border:none">Strike</th>
+            <th style="color:var(--text-label);font-weight:500;border:none">Action</th>
+            <th style="color:var(--text-label);font-weight:500;border:none">Score</th>
+            <th style="color:var(--text-label);font-weight:500;border:none">Entry</th>
+            <th style="color:var(--text-label);font-weight:500;border:none">SL</th>
+            <th style="color:var(--text-label);font-weight:500;border:none">T1</th>
+          </tr>
+        </thead>
+        <tbody id="pov-log-tbody">
+          <tr id="pov-log-empty">
+            <td colspan="7" class="text-center py-3" style="color:var(--text-label);border:none">
+              No signals fired yet
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── Legend ────────────────────────────────────────────────────────────── -->
+<div class="mt-3" style="font-size:.72rem;color:var(--text-label);line-height:1.8">
+  <span class="me-3">● C1 Volume spike (3×avg)</span>
+  <span class="me-3">● C2 OI absorption</span>
+  <span class="me-3">● C3 Range expansion (2×prev)</span>
+  <span class="me-3">● C4 Lower wick &lt;15%</span>
+  <span>● C5 Green candle</span>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/pov.js') }}"></script>
+{% endblock %}

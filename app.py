@@ -34,6 +34,7 @@ import routes.activetrade as activetrade_mod
 import routes.scanner     as scanner_mod
 import routes.profile     as profile_mod
 import routes.scan        as scan_mod
+import routes.pov         as pov_mod
 import candle_service
 import notification_service
 
@@ -67,6 +68,7 @@ def create_app() -> Flask:
     app.register_blueprint(scanner_mod.bp)
     app.register_blueprint(profile_mod.bp)
     app.register_blueprint(scan_mod.bp)
+    app.register_blueprint(pov_mod.bp)
 
     # ── Register SocketIO events from route modules ────────────────────────────
     live_mod.register_socketio(socketio)

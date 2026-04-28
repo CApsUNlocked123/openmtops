@@ -118,9 +118,78 @@ def _close_and_evaluate(sid: str, completed_raw: dict, now: datetime) -> None:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+_STRIKE_GAPS = {
+    "NIFTY": 50, "BANKNIFTY": 100, "FINNIFTY": 50,
+    "MIDCPNIFTY": 25, "SENSEX": 100,
+}
+
+
 @bp.route("/pov")
 def pov_page():
     return render_template("pov.html", state=_pov_state)
+
+
+@bp.route("/api/pov/atm_info")
+def pov_atm_info():
+    """
+    Return nearest expiry + ATM strike + 6 strike labels for the given symbol.
+    Used by the page on load and on symbol change to auto-populate the form.
+    """
+    from routes.analyzer import INDICES
+    from dhan_broker import dhan
+    import candle_service
+
+    symbol = request.args.get("symbol", "NIFTY").upper()
+    info   = INDICES.get(symbol)
+    if not info:
+        return jsonify({"error": f"Unknown symbol: {symbol}"}), 400
+
+    gap = _STRIKE_GAPS.get(symbol, 50)
+
+    # Spot price — last candle close, fallback to price_feed LTP
+    spot = None
+    candles = candle_service.get_candles(symbol, n=1)
+    if candles:
+        spot = float(candles[-1]["close"] or 0) or None
+
+    if not spot:
+        try:
+            import price_feed
+            spot = price_feed.get_ltp(str(info["security_id"]))
+        except Exception:
+            pass
+
+    if not spot:
+        return jsonify({"error": "Spot price unavailable — start the app during market hours or wait for candle data"}), 400
+
+    atm = int(round(spot / gap) * gap)
+
+    # Nearest expiry
+    expiry = ""
+    try:
+        resp     = dhan.expiry_list(info["security_id"], dhan.INDEX)
+        expiries = (resp.get("data") or {}).get("data") or []
+        expiry   = expiries[0] if expiries else ""
+    except Exception:
+        pass
+
+    strikes = [
+        {"strike": atm - 2 * gap, "option_type": "CE", "label": f"{atm - 2*gap} CE"},
+        {"strike": atm - 1 * gap, "option_type": "CE", "label": f"{atm - 1*gap} CE"},
+        {"strike": atm,           "option_type": "CE", "label": f"{atm} CE"},
+        {"strike": atm,           "option_type": "PE", "label": f"{atm} PE"},
+        {"strike": atm + 1 * gap, "option_type": "PE", "label": f"{atm + 1*gap} PE"},
+        {"strike": atm + 2 * gap, "option_type": "PE", "label": f"{atm + 2*gap} PE"},
+    ]
+
+    return jsonify({
+        "symbol":     symbol,
+        "spot":       round(spot, 2),
+        "atm_strike": atm,
+        "strike_gap": gap,
+        "expiry":     expiry,
+        "strikes":    strikes,
+    })
 
 
 @bp.route("/api/pov/setup", methods=["POST"])

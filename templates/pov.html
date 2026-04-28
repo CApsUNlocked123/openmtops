@@ -8,21 +8,25 @@
       🎯 POV <span style="color:var(--text-secondary);font-weight:400;font-size:.85rem">Pattern OI Velocity</span>
     </h5>
     <p class="mb-0 mt-1" style="font-size:.78rem;color:var(--text-secondary)">
-      Watches 6 strikes live and fires a short-squeeze signal on 1-min candle pattern (5 conditions).
+      Short-squeeze pattern on 1-min candles (5 conditions). Select symbol → auto-loads expiry + ATM → Start Feed.
     </p>
   </div>
-  <div id="pov-status-pill" style="display:none">
-    <span class="badge-buy" id="pov-active-badge">● ACTIVE</span>
-  </div>
+  <span id="pov-active-badge" class="badge-buy" style="display:none">● ACTIVE</span>
 </div>
 
-<!-- ── Setup form ─────────────────────────────────────────────────────────── -->
-<div class="stat-card mb-4" id="pov-setup-card">
-  <div class="stat-label mb-3">CONFIGURE WATCH</div>
-  <form id="pov-form" class="row g-3 align-items-end">
+<!-- ── Setup card ─────────────────────────────────────────────────────────── -->
+<div class="stat-card mb-4">
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <span class="stat-label">INSTRUMENT</span>
+    <span id="pov-spot-label" style="font-size:.78rem;color:var(--text-secondary)"></span>
+  </div>
+
+  <div class="row g-3 align-items-end">
+    <!-- Symbol -->
     <div class="col-6 col-md-2">
       <label class="stat-label d-block mb-1">Symbol</label>
-      <select id="pov-symbol" class="form-select form-select-sm" style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary)">
+      <select id="pov-symbol" class="form-select form-select-sm"
+              style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary)">
         <option>NIFTY</option>
         <option>BANKNIFTY</option>
         <option>FINNIFTY</option>
@@ -30,54 +34,76 @@
         <option>SENSEX</option>
       </select>
     </div>
+
+    <!-- Expiry (auto-filled, editable) -->
     <div class="col-6 col-md-3">
-      <label class="stat-label d-block mb-1">Expiry <span style="color:var(--text-label)">(reference)</span></label>
-      <input id="pov-expiry" type="text" class="form-control form-control-sm" placeholder="e.g. 2025-01-30"
+      <label class="stat-label d-block mb-1">Expiry</label>
+      <input id="pov-expiry" type="text" class="form-control form-control-sm"
+             placeholder="loading…"
              style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary)">
     </div>
-    <div class="col-6 col-md-3">
-      <label class="stat-label d-block mb-1">ATM Strike</label>
-      <input id="pov-atm" type="number" class="form-control form-control-sm" placeholder="e.g. 25000"
-             style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary)">
-    </div>
+
+    <!-- ATM Strike (auto-filled, editable) -->
     <div class="col-6 col-md-2">
-      <label class="stat-label d-block mb-1">Strike Gap</label>
+      <label class="stat-label d-block mb-1">ATM Strike</label>
+      <input id="pov-atm" type="number" class="form-control form-control-sm"
+             placeholder="loading…"
+             style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary)">
+    </div>
+
+    <!-- Strike Gap (auto-filled, editable) -->
+    <div class="col-6 col-md-2">
+      <label class="stat-label d-block mb-1">Gap</label>
       <input id="pov-gap" type="number" class="form-control form-control-sm" value="50"
              style="background:var(--bg-input);border-color:var(--border);color:var(--text-primary)">
     </div>
-    <div class="col-12 col-md-2 d-flex gap-2">
-      <button type="submit" id="pov-start-btn" class="btn btn-sm w-100"
-              style="background:var(--blue);color:#fff;border:none;font-weight:600">
-        ▶ Start
+
+    <!-- Buttons -->
+    <div class="col-12 col-md-3 d-flex gap-2">
+      <button id="pov-start-btn" class="btn btn-sm flex-grow-1"
+              style="background:var(--blue);color:#fff;border:none;font-weight:600"
+              disabled>
+        ▶ Start Feed
       </button>
-      <button type="button" id="pov-stop-btn" class="btn btn-sm w-100"
+      <button id="pov-refresh-btn" class="btn btn-sm"
+              style="background:var(--bg-card-raised);color:var(--text-secondary);border:1px solid var(--border)"
+              title="Re-fetch ATM">
+        ↻
+      </button>
+      <button id="pov-stop-btn" class="btn btn-sm"
               style="background:var(--bg-card-raised);color:var(--text-secondary);border:1px solid var(--border);display:none">
         ■ Stop
       </button>
     </div>
-  </form>
+  </div>
+
   <div id="pov-error" class="mt-2" style="font-size:.8rem;color:var(--red);display:none"></div>
-  <div id="pov-info"  class="mt-2" style="font-size:.78rem;color:var(--text-secondary);display:none"></div>
+
+  <!-- Strike preview -->
+  <div id="pov-strike-preview" class="mt-3 pt-3" style="border-top:1px solid var(--border);display:none">
+    <span class="stat-label me-2">WATCHING</span>
+    <span id="pov-preview-labels" style="font-size:.82rem;color:var(--text-secondary)"></span>
+  </div>
 </div>
 
-<!-- ── 6 strike cards (CE left · PE right) ───────────────────────────────── -->
+<!-- ── Live cards ─────────────────────────────────────────────────────────── -->
 <div id="pov-cards-section" style="display:none">
   <div class="row g-3 mb-4">
-    <!-- CE column -->
     <div class="col-12 col-md-6">
       <div class="stat-label mb-2">CALL SIDE (CE)</div>
       <div id="pov-ce-cards"></div>
     </div>
-    <!-- PE column -->
     <div class="col-12 col-md-6">
       <div class="stat-label mb-2">PUT SIDE (PE)</div>
       <div id="pov-pe-cards"></div>
     </div>
   </div>
 
-  <!-- ── Signal log ─────────────────────────────────────────────────────── -->
+  <!-- Signal log -->
   <div class="stat-card">
-    <div class="stat-label mb-3">SIGNAL LOG <span id="pov-log-count" style="color:var(--text-label)"></span></div>
+    <div class="stat-label mb-3">
+      SIGNAL LOG <span id="pov-log-count" style="color:var(--text-label)"></span>
+    </div>
     <div style="overflow-x:auto">
       <table class="table table-sm mb-0" style="font-size:.8rem;color:var(--text-secondary)">
         <thead>
@@ -93,9 +119,8 @@
         </thead>
         <tbody id="pov-log-tbody">
           <tr id="pov-log-empty">
-            <td colspan="7" class="text-center py-3" style="color:var(--text-label);border:none">
-              No signals fired yet
-            </td>
+            <td colspan="7" class="text-center py-3"
+                style="color:var(--text-label);border:none">No signals fired yet</td>
           </tr>
         </tbody>
       </table>
@@ -103,10 +128,10 @@
   </div>
 </div>
 
-<!-- ── Legend ────────────────────────────────────────────────────────────── -->
+<!-- Legend -->
 <div class="mt-3" style="font-size:.72rem;color:var(--text-label);line-height:1.8">
-  <span class="me-3">● C1 Volume spike (3×avg)</span>
-  <span class="me-3">● C2 OI absorption</span>
+  <span class="me-3">● C1 Volume spike (3×avg5)</span>
+  <span class="me-3">● C2 OI absorption (&lt;30k)</span>
   <span class="me-3">● C3 Range expansion (2×prev)</span>
   <span class="me-3">● C4 Lower wick &lt;15%</span>
   <span>● C5 Green candle</span>

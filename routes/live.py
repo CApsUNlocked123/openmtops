@@ -43,24 +43,32 @@ def _trade_snapshot() -> dict:
 
 def _save_trade(exit_ltp: float, exit_oid, reason: str):
     os.makedirs(TRADES_DIR, exist_ok=True)
-    buy_price = _trade.get("buy_price") or _trade.get("entry", 0)
-    pnl       = round((exit_ltp - buy_price) * _trade.get("quantity", 0), 2)
+    buy_price       = _trade.get("buy_price") or _trade.get("entry", 0)
+    remaining_qty   = _trade.get("quantity", 0)
+    partial_qty     = _trade.get("partial_exit_qty", 0)
+    partial_price   = _trade.get("partial_exit_price", 0) or 0
+    final_pnl       = (exit_ltp - buy_price) * remaining_qty
+    partial_pnl     = (partial_price - buy_price) * partial_qty if partial_qty else 0
+    pnl             = round(final_pnl + partial_pnl, 2)
     record    = {
-        "exit_reason":    reason,
-        "entry_time":     _trade.get("order_time"),
-        "exit_time":      datetime.now().isoformat(),
-        "trading_symbol": _trade.get("trading_symbol"),
-        "security_id":    _trade.get("security_id"),
-        "entry_trigger":  _trade.get("entry"),
-        "buy_price":      buy_price,
-        "exit_price":     exit_ltp,
-        "quantity":       _trade.get("quantity"),
-        "lots":           _trade.get("lots"),
-        "sl":             _trade.get("sl"),
-        "targets":        _trade.get("targets"),
-        "pnl":            pnl,
-        "order_id":       _trade.get("order_id"),
-        "exit_order_id":  exit_oid,
+        "exit_reason":         reason,
+        "entry_time":          _trade.get("order_time"),
+        "exit_time":           datetime.now().isoformat(),
+        "trading_symbol":      _trade.get("trading_symbol"),
+        "security_id":         _trade.get("security_id"),
+        "entry_trigger":       _trade.get("entry"),
+        "buy_price":           buy_price,
+        "exit_price":          exit_ltp,
+        "quantity":            remaining_qty,
+        "lots":                _trade.get("lots"),
+        "sl":                  _trade.get("sl"),
+        "targets":             _trade.get("targets"),
+        "partial_exit_qty":    partial_qty,
+        "partial_exit_price":  partial_price,
+        "partial_pnl":         round(partial_pnl, 2) if partial_qty else 0,
+        "pnl":                 pnl,
+        "order_id":            _trade.get("order_id"),
+        "exit_order_id":       exit_oid,
     }
     fname = f"trade_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(os.path.join(TRADES_DIR, fname), "w") as f:
@@ -176,7 +184,9 @@ def _do_exit(ltp: float, reason: str):
 
 
 def _do_partial_exit(ltp: float, qty: int):
-    """Sell a partial quantity at market. Updates _trade["quantity"] on success."""
+    """Sell a partial quantity at market. Updates _trade["quantity"] on success.
+    Returns True on success, False on failure — caller must NOT mutate t1_hit/sl
+    before checking the return value."""
     try:
         resp = dhan.place_order(
             security_id=_trade["security_id"],
@@ -196,6 +206,8 @@ def _do_partial_exit(ltp: float, qty: int):
         remaining          = _trade["quantity"] - qty
         _trade["quantity"] = remaining
         _trade["lots"]     = remaining // _trade.get("lot_size", 1)
+        _trade["partial_exit_qty"]   = (_trade.get("partial_exit_qty") or 0) + qty
+        _trade["partial_exit_price"] = ltp
         if _sio:
             _sio.emit("trade_update", {
                 "state":              "active",
@@ -266,21 +278,25 @@ def _check_auto_trade(sid: str, ltp: float):
             _do_exit(ltp, "TARGET2")
         elif target1 and not _trade.get("t1_hit") and ltp >= target1:
             if target2:
-                # Partial exit: sell half the lots, move SL to midpoint of bar
-                qty_exit  = _trade["quantity"] // 2
-                bar       = target1 - buy_price
-                half_mark = buy_price + bar / 2
-                _trade["t1_hit"]     = True
-                _trade["sl"]         = half_mark
-                _trade["sl_trailed"] = True   # block trailing SL from overriding
-                sl                   = half_mark
-                _do_partial_exit(ltp, qty_exit)
-                if _sio:
-                    _sio.emit("trade_update", {
-                        "state": "active",
-                        "sl":    round(half_mark, 2),
-                        "t1_hit": True,
-                    })
+                # Partial exit: sell half the lots, move SL to midpoint of bar.
+                # Only mutate t1_hit/sl AFTER the broker confirms the partial fill —
+                # otherwise a rejected partial leaves us with full position but a
+                # tightened SL, causing a premature full exit on the next tick.
+                qty_exit = _trade["quantity"] // 2
+                if qty_exit <= 0:
+                    return
+                if _do_partial_exit(ltp, qty_exit):
+                    bar       = target1 - buy_price
+                    half_mark = buy_price + bar / 2
+                    _trade["t1_hit"]     = True
+                    _trade["sl"]         = half_mark
+                    _trade["sl_trailed"] = True   # block trailing SL from overriding
+                    if _sio:
+                        _sio.emit("trade_update", {
+                            "state":  "active",
+                            "sl":     round(half_mark, 2),
+                            "t1_hit": True,
+                        })
             else:
                 _trade["state"] = "exiting_guard"
                 _do_exit(ltp, "TARGET")
@@ -309,6 +325,25 @@ def live_page():
         lot_size      = int(params.get("lot_size", 65))
         lots_override = params.get("lots_override")
         entry_price   = float(params.get("entry") or 0)
+        sl_price      = float(params.get("sl") or 0)
+        targets_list  = [float(t) for t in params.get("targets", []) if t]
+        target1       = targets_list[0] if targets_list else 0
+
+        # ── Pre-flight validation ─────────────────────────────────────────────
+        # Long-only system: SL must be below entry, T1 above entry. A flipped
+        # ordering would fire the SL on the very first tick → instant loss.
+        if entry_price <= 0 or sl_price <= 0 or target1 <= 0:
+            flash("Invalid trade params: entry, SL, and at least one target must all be > 0.", "danger")
+            session.pop("watching", None)
+            return redirect("/")
+        if not (sl_price < entry_price < target1):
+            flash(
+                f"Invalid SL/target ordering: need SL ({sl_price}) < entry ({entry_price}) "
+                f"< target1 ({target1}). This system supports long trades only.",
+                "danger",
+            )
+            session.pop("watching", None)
+            return redirect("/")
 
         MAX_LOTS = 20
 
@@ -324,21 +359,33 @@ def live_page():
                 lots  = 0
             lots = min(lots, MAX_LOTS)
 
+        if lots <= 0:
+            flash(
+                "Insufficient funds for even 1 lot at the entry price. "
+                "Top up your account or lower the entry, then try again.",
+                "danger",
+            )
+            session.pop("watching", None)
+            return redirect("/")
+
+        _trade.clear()
         _trade.update(
-            state          = "watching",
-            security_id    = params["security_id"],
-            trading_symbol = params["trading_symbol"],
-            expiry         = params.get("expiry", ""),
-            entry          = entry_price,
-            sl             = float(params.get("sl") or 0),
-            targets        = [float(t) for t in params.get("targets", []) if t],
-            lot_size       = lot_size,
-            lots           = lots,
-            quantity       = lots * lot_size,
-            buy_price      = None,
-            order_id       = None,
-            sl_trailed     = False,
-            t1_hit         = False,
+            state              = "watching",
+            security_id        = params["security_id"],
+            trading_symbol     = params["trading_symbol"],
+            expiry             = params.get("expiry", ""),
+            entry              = entry_price,
+            sl                 = sl_price,
+            targets            = targets_list,
+            lot_size           = lot_size,
+            lots               = lots,
+            quantity           = lots * lot_size,
+            buy_price          = None,
+            order_id           = None,
+            sl_trailed         = False,
+            t1_hit             = False,
+            partial_exit_qty   = 0,
+            partial_exit_price = 0,
         )
 
         # Start price feed with auto-execution callback
@@ -377,14 +424,17 @@ def live_status():
 
 @bp.route("/live/exit", methods=["POST"])
 def exit_trade():
-    """Manual exit triggered by button click."""
+    """Manual exit triggered by button click.
+
+    LTP is pulled from the price-feed cache (authoritative), not the form —
+    a client-supplied price could distort PnL accounting in the saved trade.
+    """
     if _trade.get("state") == "active":
-        ltp_val = request.form.get("ltp", "0")
-        try:
-            ltp = float(ltp_val)
-        except ValueError:
+        sid = str(_trade.get("security_id") or "")
+        ltp = price_feed.get_ltp(sid) if sid else None
+        if not ltp:
             ltp = float(_trade.get("buy_price") or 0)
-        _do_exit(ltp, "MANUAL")
+        _do_exit(float(ltp), "MANUAL")
     return redirect("/")
 
 

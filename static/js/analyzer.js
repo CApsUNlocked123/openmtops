@@ -1,43 +1,34 @@
-/* Option Analyzer — chain loading + SocketIO live updates */
+/* Option Analyzer — fetches 1-min series for nearest 7 strikes and renders
+   4 charts (CE/PE Time-vs-IV, CE/PE Spot-vs-Option-Price). Each chart has its
+   own strike toggle so you can isolate one strike or compare a subset. */
 
-function initAnalyzer(subscribedSids, subscribedStrikes) {
-  const instrSel    = document.getElementById("instrument-sel");
-  const expirySel   = document.getElementById("expiry-sel");
-  const loadBtn     = document.getElementById("load-btn");
-  const subBtn      = document.getElementById("subscribe-btn");
-  const trackOiBtn  = document.getElementById("track-oi-btn");
-  const chainWrap   = document.getElementById("chain-wrap");
-  const chainBody   = document.getElementById("chain-body");
-  const ultpEl      = document.getElementById("ultp-val");
-  const rowCntEl    = document.getElementById("row-count");
-  const selectAll   = document.getElementById("select-all");
-  const feedBadge   = document.getElementById("feed-badge");
-  const feedSids    = document.getElementById("feed-sids");
-  const pcrValEl    = document.getElementById("pcr-val");
-  const pcrBiasEl   = document.getElementById("pcr-bias-badge");
-  const maxPainEl   = document.getElementById("max-pain-val");
-  const clarityEl   = document.getElementById("clarity-badge");
+function initAnalyzer() {
+  const instrSel  = document.getElementById("instrument-sel");
+  const expirySel = document.getElementById("expiry-sel");
+  const loadBtn   = document.getElementById("load-btn");
+  const statusEl  = document.getElementById("status-msg");
+  const spotEl    = document.getElementById("spot-val");
+  const dteEl     = document.getElementById("dte-val");
+  const strikesEl = document.getElementById("strikes-val");
 
-  let loadedRows      = [];
-  let lotSize         = 65;
-  let currentUltp     = 0;
-  let ulSecurityId    = "";
-  let socket          = null;
-  let sidToCell       = {};   // sid → {ltp: td, oi: td}
-  let liveOI          = {};   // strike(int) → { ce_oi, pe_oi, ce_ltp, pe_ltp }
-  let sidToStrike     = {};   // security_id → { strike, side: "ce"|"pe" }
-  const signalPanel   = document.getElementById("signal-panel");
+  const charts = { ceIv: null, peIv: null, cePrice: null, pePrice: null };
+  const maxPainEl     = document.getElementById("max-pain-val");
+  const neutralZoneEl = document.getElementById("neutral-zone-val");
+  const diagCard      = document.getElementById("diag-card");
+  const diagBody      = document.getElementById("diag-body");
 
-  // ── On load: if already subscribed, show feed badge and reconnect SocketIO
-  if (subscribedSids && Object.keys(subscribedSids).length > 0) {
-    feedBadge.classList.remove("d-none");
-    const sids = Object.values(subscribedSids).flatMap(v => [v.ce_sid, v.pe_sid]).filter(Boolean);
-    feedSids.textContent = `(${sids.length} instruments)`;
-    connectSocketIO(sids);
-  }
+  // One color per strike index (0..6). 7 strikes: 3 below + ATM + 3 above.
+  const PALETTE = ["#4dabf7", "#51cf66", "#ffd43b", "#fa5252",
+                   "#ff922b", "#e599f7", "#22b8cf"];
 
-  // ── Instrument change → load expiries ────────────────────────────────────
-  instrSel.addEventListener("change", () => {
+  // Latest payload (for re-render on toggle) and per-chart visibility map
+  let lastData = null;
+  const visibleStrikes = {
+    ceIv: new Set(), peIv: new Set(), cePrice: new Set(), pePrice: new Set(),
+  };
+
+  // ── Load expiries on instrument change ─────────────────────────────────────
+  function loadExpiries() {
     expirySel.disabled = true;
     loadBtn.disabled   = true;
     expirySel.innerHTML = "<option>Loading…</option>";
@@ -52,431 +43,312 @@ function initAnalyzer(subscribedSids, subscribedStrikes) {
       expirySel.innerHTML = "";
       (d.expiries || []).forEach(exp => {
         const opt = document.createElement("option");
-        opt.value = exp; opt.textContent = exp.slice(0, 10);
+        opt.value = exp;
+        opt.textContent = exp.slice(0, 10);
         expirySel.appendChild(opt);
       });
       expirySel.disabled = false;
       loadBtn.disabled   = false;
     })
     .catch(() => { expirySel.innerHTML = "<option>Error</option>"; });
-  });
+  }
 
-  // Auto-trigger expiry load for pre-selected instrument
-  if (instrSel.value) instrSel.dispatchEvent(new Event("change"));
+  instrSel.addEventListener("change", loadExpiries);
+  if (instrSel.value) loadExpiries();
 
-  // ── Load chain button ─────────────────────────────────────────────────────
+  // ── Load series ────────────────────────────────────────────────────────────
   loadBtn.addEventListener("click", () => {
-    loadBtn.textContent = "Loading…";
     loadBtn.disabled    = true;
+    loadBtn.textContent = "Loading…";
+    statusEl.textContent = "Fetching 1-min series for 7 strikes (14 legs)…";
 
-    fetch("/analyzer/chain", {
+    fetch("/analyzer/series", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({instrument: instrSel.value, expiry: expirySel.value}),
     })
     .then(r => r.json())
     .then(d => {
-      loadedRows    = d.rows || [];
-      lotSize       = d.lot_size || 65;
-      currentUltp   = d.ultp || 0;
-      ulSecurityId  = d.ul_security_id || "";
-
-      // Info bar
-      ultpEl.textContent    = currentUltp ? "₹" + currentUltp.toFixed(2) : "—";
-      rowCntEl.textContent  = loadedRows.length;
-
-      if (pcrValEl)   pcrValEl.textContent  = d.pcr ? d.pcr.toFixed(3) : "—";
-      if (maxPainEl)  maxPainEl.textContent = d.max_pain ? d.max_pain.toLocaleString() : "—";
-      if (pcrBiasEl)  renderBiasBadge(pcrBiasEl, d.pcr_bias);
-      if (clarityEl)  renderClarityBadge(clarityEl, d.clarity);
-
-      // Build live OI map from ALL rows (not just rendered ATM±10 slice)
-      liveOI = {};
-      sidToStrike = {};
-      loadedRows.forEach(r => {
-        liveOI[r.strike] = { ce_oi: r.ce.oi, pe_oi: r.pe.oi,
-                              ce_ltp: r.ce.ltp, pe_ltp: r.pe.ltp };
-        if (r.ce.security_id) sidToStrike[r.ce.security_id] = { strike: r.strike, side: "ce" };
-        if (r.pe.security_id) sidToStrike[r.pe.security_id] = { strike: r.strike, side: "pe" };
+      if (d.error) {
+        statusEl.textContent = "Error: " + d.error;
+        loadBtn.disabled = false;
+        loadBtn.textContent = "Load Charts";
+        return;
+      }
+      lastData = d;
+      // Default: show all strikes on every chart
+      Object.keys(visibleStrikes).forEach(k => {
+        visibleStrikes[k] = new Set(d.strikes.map(s => s.strike));
       });
-
-      renderChain(loadedRows, currentUltp, d.max_pain);
-
-      signalPanel.style.display = "";
-      recomputeKPIs();
-
-      chainWrap.classList.remove("d-none");
+      buildStrikePickers(d.strikes);
+      renderAll();
+      loadBtn.disabled = false;
       loadBtn.textContent = "Reload";
-      loadBtn.disabled    = false;
     })
     .catch(e => {
-      alert("Failed to load chain: " + e);
-      loadBtn.textContent = "Load Chain";
-      loadBtn.disabled    = false;
+      statusEl.textContent = "Network error: " + e;
+      loadBtn.disabled = false;
+      loadBtn.textContent = "Load Charts";
     });
   });
 
-  // ── Select-all checkbox ───────────────────────────────────────────────────
-  selectAll.addEventListener("change", () => {
-    chainBody.querySelectorAll(".strike-chk").forEach(c => c.checked = selectAll.checked);
-    updateSubBtn();
-  });
+  // ── Build per-chart strike toggle buttons ─────────────────────────────────
+  function buildStrikePickers(strikes) {
+    document.querySelectorAll(".strike-picker").forEach(picker => {
+      const chartKey = picker.dataset.chart;
+      picker.innerHTML = "";
 
-  // ── Subscribe button ──────────────────────────────────────────────────────
-  subBtn.addEventListener("click", () => {
-    const strikes = [...chainBody.querySelectorAll(".strike-chk:checked")]
-                    .map(c => parseInt(c.dataset.strike));
-    if (!strikes.length) return;
+      strikes.forEach((s, i) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn btn-outline-light btn-sm active";
+        btn.style.borderColor = PALETTE[i];
+        btn.style.color = PALETTE[i];
+        btn.style.fontSize = "0.7rem";
+        btn.style.padding = "0.1rem 0.4rem";
+        btn.textContent = s.strike;
+        btn.dataset.strike = s.strike;
 
-    subBtn.textContent = "Subscribing…";
-    subBtn.disabled    = true;
-
-    fetch("/analyzer/subscribe", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({strikes}),
-    })
-    .then(r => r.json())
-    .then(d => {
-      if (!d.ok) { alert(d.error || "Subscribe failed"); return; }
-      const sids = Object.values(d.sids_map).flatMap(v => [v.ce_sid, v.pe_sid]).filter(Boolean);
-      feedBadge.classList.remove("d-none");
-      feedSids.textContent = `(${sids.length} instruments)`;
-      connectSocketIO(sids);
-      subBtn.textContent = "Subscribed";
-    })
-    .catch(e => { alert("Subscribe error: " + e); subBtn.textContent = "Subscribe Selected →"; subBtn.disabled = false; });
-  });
-
-  // ── Track OI button ───────────────────────────────────────────────────────
-  trackOiBtn.addEventListener("click", () => {
-    const strikes = [...chainBody.querySelectorAll(".strike-chk:checked")]
-                    .map(c => parseInt(c.dataset.strike));
-    if (!strikes.length) return;
-
-    trackOiBtn.textContent = "Starting…";
-    trackOiBtn.disabled    = true;
-
-    fetch("/oi_tracker/start", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({strikes, lot_size: lotSize, ultp: currentUltp, ul_security_id: ulSecurityId}),
-    })
-    .then(r => r.json())
-    .then(d => {
-      if (!d.ok) { alert(d.error || "Failed to start tracking"); trackOiBtn.disabled = false; return; }
-      window.location.href = "/oi_tracker";
-    })
-    .catch(e => { alert("Error: " + e); trackOiBtn.disabled = false; });
-  });
-
-  // ── Render chain table ────────────────────────────────────────────────────
-  function renderChain(rows, ultp, maxPain) {
-    chainBody.innerHTML = "";
-    sidToCell = {};
-    let step = 50;
-    if (rows.length >= 2) step = rows[1].strike - rows[0].strike;
-    const atmStrike = (ultp && step) ? Math.round(ultp / step) * step : null;
-
-    // Slice to ATM ± 10 strikes
-    if (atmStrike) {
-      const atmIdx = rows.findIndex(r => r.strike >= atmStrike);
-      if (atmIdx !== -1) rows = rows.slice(Math.max(0, atmIdx - 10), atmIdx + 11);
-    }
-
-    rows.forEach(r => {
-      const isAtm     = atmStrike && r.strike === atmStrike;
-      const isMaxPain = maxPain && r.strike === maxPain;
-      const tier      = r.tier;
-      const tr        = document.createElement("tr");
-
-      if (isAtm)   tr.classList.add("atm-row");
-      if (tier === 1) tr.style.borderLeft = "2px solid #ffc107";
-
-      const ceOI = fmtOI(r.ce.oi);
-      const peOI = fmtOI(r.pe.oi);
-
-      const strikeLabel =
-        (isMaxPain ? "⚡ " : "") +
-        (isAtm     ? "▶ " : "") +
-        r.strike.toLocaleString();
-
-      tr.innerHTML = `
-        <td class="text-center">
-          <input type="checkbox" class="form-check-input strike-chk" data-strike="${r.strike}">
-        </td>
-        <td class="text-end" id="ce-ltp-${r.strike}">${fmtPrice(r.ce.ltp)}</td>
-        <td class="text-end text-info" id="ce-oi-${r.strike}">${ceOI}</td>
-        <td class="text-end text-secondary">${r.ce.iv}%</td>
-        <td class="text-end text-secondary">${r.ce.delta.toFixed(2)}</td>
-        <td class="text-center fw-bold ${isAtm ? "text-primary" : ""}">
-          ${strikeLabel}
-        </td>
-        <td class="text-start text-secondary">${r.pe.delta.toFixed(2)}</td>
-        <td class="text-start text-secondary">${r.pe.iv}%</td>
-        <td class="text-start text-info" id="pe-oi-${r.strike}">${peOI}</td>
-        <td class="text-start" id="pe-ltp-${r.strike}">${fmtPrice(r.pe.ltp)}</td>
-        <td class="text-center">${wallBadge(r.wall)}</td>
-      `;
-
-      if (r.ce.security_id) {
-        sidToCell[r.ce.security_id] = {
-          ltp: tr.querySelector(`#ce-ltp-${r.strike}`),
-          oi:  tr.querySelector(`#ce-oi-${r.strike}`),
-        };
-      }
-      if (r.pe.security_id) {
-        sidToCell[r.pe.security_id] = {
-          ltp: tr.querySelector(`#pe-ltp-${r.strike}`),
-          oi:  tr.querySelector(`#pe-oi-${r.strike}`),
-        };
-      }
-
-      tr.querySelector(".strike-chk").addEventListener("change", updateSubBtn);
-      chainBody.appendChild(tr);
-    });
-
-    updateSubBtn();
-  }
-
-  // ── SocketIO for live ticks ───────────────────────────────────────────────
-  function connectSocketIO(sids) {
-    if (!socket) socket = io();
-
-    socket.on("connect", () => {
-      sids.forEach(sid => socket.emit("analyzer_join", {sid}));
-    });
-
-    socket.on("az_tick", (data) => {
-      const sid  = String(data.sid);
-      // Update chain table cells
-      const cell = sidToCell[sid];
-      if (cell) {
-        if (cell.ltp) cell.ltp.textContent = fmtPrice(parseFloat(data.ltp));
-        if (cell.oi && data.oi) cell.oi.textContent = fmtOI(parseInt(data.oi));
-      }
-      // Update liveOI and recompute KPIs
-      const info = sidToStrike[sid];
-      if (info) {
-        const entry = liveOI[info.strike];
-        if (entry) {
-          if (info.side === "ce") {
-            if (data.oi  > 0) entry.ce_oi  = parseInt(data.oi);
-            if (data.ltp > 0) entry.ce_ltp = parseFloat(data.ltp);
+        btn.addEventListener("click", () => {
+          const set = visibleStrikes[chartKey];
+          if (set.has(s.strike)) {
+            set.delete(s.strike);
+            btn.classList.remove("active");
+            btn.style.opacity = "0.35";
           } else {
-            if (data.oi  > 0) entry.pe_oi  = parseInt(data.oi);
-            if (data.ltp > 0) entry.pe_ltp = parseFloat(data.ltp);
+            set.add(s.strike);
+            btn.classList.add("active");
+            btn.style.opacity = "1";
           }
-          recomputeKPIs();
-        }
-      }
+          renderChart(chartKey);
+        });
+        picker.appendChild(btn);
+      });
+    });
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  function renderAll() {
+    const d = lastData;
+    spotEl.textContent        = d.spot ? d.spot.toLocaleString("en-IN", {maximumFractionDigits: 2}) : "—";
+    dteEl.textContent         = d.days_left;
+    maxPainEl.textContent     = d.max_pain ? d.max_pain.toLocaleString() : "—";
+    neutralZoneEl.textContent = d.neutral_zone ? d.neutral_zone.toLocaleString() : "—";
+
+    const totalPoints = d.strikes.reduce((acc, s) =>
+      acc + (s.ce.timestamps.length || 0) + (s.pe.timestamps.length || 0), 0);
+    statusEl.textContent = totalPoints > 0
+      ? `Loaded ${totalPoints} option ticks across ${d.strikes.length} strikes.`
+      : "No intraday data available (market may be closed).";
+
+    renderDiagnostics();
+
+    renderChart("ceIv");
+    renderChart("peIv");
+    renderChart("cePrice");
+    renderChart("pePrice");
+  }
+
+  // ── Diagnostics table ──────────────────────────────────────────────────────
+  const OI_BADGE = {
+    "LONG_BUILDUP":   ["success", "Long Buildup",  "Buyers adding — bullish for direction"],
+    "SHORT_BUILDUP":  ["danger",  "Short Buildup", "Writers adding — bearish for direction"],
+    "SHORT_COVERING": ["info",    "Short Cover",   "Writers exiting — bullish unwind"],
+    "LONG_UNWINDING": ["warning", "Long Unwind",   "Buyers exiting — bearish unwind"],
+    "NEUTRAL":        ["secondary", "—",           "No dominant action"],
+  };
+  const IV_BADGE = {
+    "STABLE":      ["success",   "Stable",      "Writers confident — level holding"],
+    "RISING":      ["danger",    "Rising",      "Demand outpacing supply — directional pressure"],
+    "FALLING":     ["info",      "Falling",     "Premium decay / writer dominance"],
+    "FLUCTUATING": ["warning",   "Fluctuating", "Indecision — possible reversal"],
+    "UNKNOWN":     ["secondary", "—",           "Insufficient data"],
+  };
+
+  function _oiCell(summary, align) {
+    const dom = (summary && summary.dominant) || "NEUTRAL";
+    const [color, label, tip] = OI_BADGE[dom] || OI_BADGE["NEUTRAL"];
+    return `<td class="text-${align}">
+      <span class="badge bg-${color}" title="${tip}">${label}</span>
+    </td>`;
+  }
+  function _ivCell(state, align) {
+    const s = (state && state.state) || "UNKNOWN";
+    const [color, label, tip] = IV_BADGE[s] || IV_BADGE["UNKNOWN"];
+    const extra = state && state.mean != null
+      ? `<span class="text-secondary ms-1" style="font-size:0.7rem;">μ${state.mean}% σ${state.stdev}</span>`
+      : "";
+    return `<td class="text-${align}">
+      <span class="badge bg-${color}" title="${tip}">${label}</span>${extra}
+    </td>`;
+  }
+  function _volDivCell(vd, align) {
+    if (!vd || vd.n_bars === 0) {
+      return `<td class="text-${align}"><span class="text-muted">—</span></td>`;
+    }
+    const ratio = vd.count / vd.n_bars;
+    const color = ratio >= 0.5 ? "danger" : ratio >= 0.25 ? "warning" : "secondary";
+    const star  = vd.latest ? " ⚠" : "";
+    return `<td class="text-${align}">
+      <span class="badge bg-${color}" title="${vd.count} divergent bars of ${vd.n_bars} checked">
+        ${vd.count}/${vd.n_bars}${star}
+      </span>
+    </td>`;
+  }
+
+  function renderDiagnostics() {
+    const d = lastData;
+    diagBody.innerHTML = "";
+    d.strikes.forEach(s => {
+      const atm = d.spot && Math.abs(s.strike - d.spot) === Math.min(...d.strikes.map(x => Math.abs(x.strike - d.spot)));
+      const tr = document.createElement("tr");
+      tr.innerHTML = [
+        _volDivCell(s.ce.vol_div,    "end"),
+        _ivCell(s.ce.iv_state,       "end"),
+        _oiCell(s.ce.oi_summary,     "end"),
+        `<td class="text-center fw-bold ${atm ? "text-warning" : ""}">
+          ${atm ? "▶ " : ""}${s.strike.toLocaleString()}
+        </td>`,
+        _oiCell(s.pe.oi_summary,     "start"),
+        _ivCell(s.pe.iv_state,       "start"),
+        _volDivCell(s.pe.vol_div,    "start"),
+      ].join("");
+      diagBody.appendChild(tr);
+    });
+    diagCard.style.display = "";
+  }
+
+  function renderChart(key) {
+    if (!lastData) return;
+    if (key === "ceIv")    drawIvChart("chart-ce-iv",      "ceIv",    "ce");
+    if (key === "peIv")    drawIvChart("chart-pe-iv",      "peIv",    "pe");
+    if (key === "cePrice") drawPriceChart("chart-ce-price","cePrice", "ce");
+    if (key === "pePrice") drawPriceChart("chart-pe-price","pePrice", "pe");
+  }
+
+  function drawIvChart(canvasId, key, side) {
+    const visible = visibleStrikes[key];
+    const datasets = lastData.strikes
+      .map((s, i) => ({ s, i }))
+      .filter(({s}) => visible.has(s.strike))
+      .map(({s, i}) => {
+        const ts  = s[side].timestamps;
+        const ivs = s[side].iv;
+        const data = ts.map((t, j) => ({ x: t * 1000, y: ivs[j] })).filter(p => p.y != null);
+        return {
+          label: String(s.strike),
+          data,
+          borderColor: PALETTE[i],
+          backgroundColor: PALETTE[i],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.2,
+          spanGaps: true,
+        };
+      });
+
+    if (charts[key]) charts[key].destroy();
+    charts[key] = new Chart(document.getElementById(canvasId), {
+      type: "line",
+      data: { datasets },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: {
+          x: { type: "time", time: { unit: "minute", displayFormats: { minute: "HH:mm" } },
+               ticks: { color: "#adb5bd" }, grid: { color: "#343a40" } },
+          y: { title: { display: true, text: "IV %", color: "#adb5bd" },
+               ticks: { color: "#adb5bd" }, grid: { color: "#343a40" } },
+        },
+        plugins: {
+          legend: { labels: { color: "#dee2e6", font: { size: 11 } } },
+          tooltip: { mode: "index", intersect: false },
+        },
+      },
+    });
+  }
+
+  function drawPriceChart(canvasId, key, side) {
+    const visible = visibleStrikes[key];
+    const spotMap = {};
+    lastData.spot_series.timestamps.forEach((t, i) => {
+      spotMap[t] = lastData.spot_series.close[i];
     });
 
-    if (socket.connected) {
-      sids.forEach(sid => socket.emit("analyzer_join", {sid}));
-    }
-  }
+    const datasets = lastData.strikes
+      .map((s, i) => ({ s, i }))
+      .filter(({s}) => visible.has(s.strike))
+      .map(({s, i}) => {
+        const ts     = s[side].timestamps;
+        const prices = s[side].price;
+        const data = ts.map((t, j) => {
+          const spot = spotMap[t];
+          if (spot == null) return null;
+          return { x: spot, y: prices[j] };
+        }).filter(Boolean);
+        return {
+          label: String(s.strike),
+          data,
+          borderColor: PALETTE[i],
+          backgroundColor: PALETTE[i],
+          showLine: false,
+          pointRadius: 2,
+        };
+      });
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  function updateSubBtn() {
-    const n = chainBody.querySelectorAll(".strike-chk:checked").length;
-    subBtn.disabled        = n === 0;
-    trackOiBtn.disabled    = n === 0;
-    subBtn.textContent     = n > 0 ? `Subscribe ${n} Strike(s) →` : "Subscribe Selected →";
-    trackOiBtn.textContent = n > 0 ? `Track OI (${n}) →` : "Track OI →";
-  }
-
-  function wallBadge(wall) {
-    if (!wall) return "<span class='text-muted'>—</span>";
-    const map = {
-      "FORTRESS":   ["warning",  "🏰 FORT"],
-      "CALL_WALL":  ["danger",   "CALL"],
-      "PUT_WALL":   ["success",  "PUT"],
-      "RESISTANCE": ["secondary","RES"],
-      "SUPPORT":    ["info",     "SUP"],
-    };
-    const [color, label] = map[wall] || ["secondary", wall];
-    return `<span class="badge bg-${color}">${label}</span>`;
-  }
-
-  function renderBiasBadge(el, bias) {
-    const map = {
-      "BULLISH":       ["success",   "BULLISH"],
-      "MILDLY_BULLISH":["success",   "MILD BULL"],
-      "NEUTRAL":       ["secondary", "NEUTRAL"],
-      "MILDLY_BEARISH":["danger",    "MILD BEAR"],
-      "BEARISH":       ["danger",    "BEARISH"],
-    };
-    const [color, label] = map[bias] || ["secondary", bias || "—"];
-    el.className  = `badge ms-1 bg-${color}`;
-    el.textContent = label;
-  }
-
-  // ── Real-time KPI computation ─────────────────────────────────────────────
-
-  function recomputeKPIs() {
-    if (!Object.keys(liveOI).length) return;
-    const mp   = computeMaxPain(liveOI);
-    const sigA = computeSetupA(liveOI, currentUltp, mp);
-    renderSignalKPI(sigA);
-    renderMaxPainKPI(mp, currentUltp);
-  }
-
-  function computeMaxPain(oi) {
-    const strikes = Object.keys(oi).map(Number).sort((a, b) => a - b);
-    let minPain = Infinity, result = null;
-    for (const s of strikes) {
-      let pain = 0;
-      for (const k of strikes) {
-        pain += Math.max(0, s - k) * oi[k].ce_oi;
-        pain += Math.max(0, k - s) * oi[k].pe_oi;
+    // Vertical reference lines at max-pain and neutral-zone.
+    // Use the y-range of plotted points; if none, skip.
+    const allY = datasets.flatMap(ds => ds.data.map(p => p.y)).filter(v => v != null);
+    if (allY.length && (lastData.max_pain || lastData.neutral_zone)) {
+      const yMin = Math.min(...allY), yMax = Math.max(...allY);
+      if (lastData.max_pain) {
+        datasets.push({
+          label: `Max Pain ${lastData.max_pain}`,
+          data: [{ x: lastData.max_pain, y: yMin }, { x: lastData.max_pain, y: yMax }],
+          borderColor: "#ffd43b",
+          backgroundColor: "#ffd43b",
+          borderDash: [6, 4],
+          showLine: true,
+          pointRadius: 0,
+          borderWidth: 1.5,
+        });
       }
-      if (pain < minPain) { minPain = pain; result = s; }
-    }
-    return result;
-  }
-
-  function computeSetupA(oi, spot, maxPain) {
-    if (!spot || spot <= 0) return null;
-    let totalCe = 0, totalPe = 0;
-    Object.values(oi).forEach(v => { totalCe += v.ce_oi; totalPe += v.pe_oi; });
-    const pcr = totalCe > 0 ? totalPe / totalCe : 0;
-
-    const levels = Object.entries(oi).map(([s, v]) => {
-      const strike = parseInt(s);
-      const rCe = v.pe_oi > 0 ? v.ce_oi / v.pe_oi : Infinity;
-      const rPe = v.ce_oi > 0 ? v.pe_oi / v.ce_oi : Infinity;
-      const cls  = (rCe >= 2 && rPe >= 2) ? "FORTRESS"
-                 : rCe >= 2 ? "CALL_WALL"
-                 : rPe >= 2 ? "PUT_WALL"
-                 : v.ce_oi >= v.pe_oi ? "RESISTANCE" : "SUPPORT";
-      return { strike, ce_oi: v.ce_oi, pe_oi: v.pe_oi,
-               total_oi: v.ce_oi + v.pe_oi, cls };
-    }).sort((a, b) => b.total_oi - a.total_oi);
-
-    const top3    = levels.slice(0, 3);
-    const clarity = top3.length >= 2 && top3[0].total_oi >= 2 * top3[1].total_oi
-                    ? "CLEAR" : top3.length === 1 ? "CLEAR" : "MIXED";
-
-    let best = null;
-    for (const lv of levels.slice(0, 8)) {
-      const dist  = (lv.strike - spot) / spot;
-      const adist = Math.abs(dist);
-      if (adist < 0.005 || adist > 0.05) continue;
-      const direction = dist > 0 ? "LONG" : "SHORT";
-      const valid = (direction === "LONG"  && (lv.cls === "PUT_WALL"  || lv.cls === "FORTRESS")) ||
-                    (direction === "SHORT" && (lv.cls === "CALL_WALL" || lv.cls === "FORTRESS")) ||
-                    Math.abs(lv.strike - maxPain) / Math.max(spot, 1) <= 0.005;
-      if (!valid) continue;
-      if (direction === "LONG"  && pcr < 0.6) continue;
-      if (direction === "SHORT" && pcr > 1.4) continue;
-      const blocked = top3.some(o =>
-        o.strike !== lv.strike && (
-          (direction === "LONG"  && spot < o.strike && o.strike < lv.strike && o.cls === "CALL_WALL") ||
-          (direction === "SHORT" && lv.strike < o.strike && o.strike < spot  && o.cls === "PUT_WALL")
-        )
-      );
-      if (blocked) continue;
-
-      let conf = 0;
-      const met = [], failed = [];
-      met.push(`${lv.cls} @ ${lv.strike.toLocaleString()}`);
-      if (levels[0].total_oi > 1.8 * (levels[1] ? levels[1].total_oi : 0)) { conf++; met.push("OI dominant"); }
-      else failed.push("Not dominant");
-      if ((direction === "LONG" && pcr >= 1.3) || (direction === "SHORT" && pcr <= 0.7)) { conf++; met.push("PCR " + pcr.toFixed(2)); }
-      else failed.push("PCR " + pcr.toFixed(2));
-      if ((direction === "LONG" && maxPain > spot) || (direction === "SHORT" && maxPain < spot)) { conf++; met.push("MP " + maxPain.toLocaleString()); }
-      else failed.push("MP misaligned");
-      if (clarity === "CLEAR") { conf++; met.push("CLEAR"); }
-      else failed.push("MIXED");
-      if (adist <= 0.02) { conf++; met.push((adist * 100).toFixed(1) + "% away"); }
-      else failed.push((adist * 100).toFixed(1) + "% away");
-
-      const stopPct  = Math.max(0.004, Math.min(0.015, adist * 0.5));
-      const sl       = direction === "LONG" ? spot * (1 - stopPct) : spot * (1 + stopPct);
-      const target   = direction === "LONG" ? lv.strike * 0.997 : lv.strike * 1.003;
-      const cand = { direction, confidence: Math.round(conf / 5 * 100),
-                     strike: lv.strike, cls: lv.cls,
-                     entry: spot, target: Math.round(target),
-                     sl: Math.round(sl * 100) / 100, met, failed };
-      if (!best || cand.confidence > best.confidence) best = cand;
-    }
-    return best;
-  }
-
-  function renderSignalKPI(sig) {
-    const dirEl   = document.getElementById("kpi-dir-badge");
-    const confEl  = document.getElementById("kpi-conf");
-    const wallEl  = document.getElementById("kpi-wall");
-    const entEl   = document.getElementById("kpi-entry");
-    const tgtEl   = document.getElementById("kpi-target");
-    const slEl    = document.getElementById("kpi-sl");
-    const condEl  = document.getElementById("kpi-conditions");
-    if (!dirEl) return;
-
-    if (!sig) {
-      dirEl.textContent  = "No signal";
-      dirEl.className    = "fs-5 fw-bold mb-1 text-secondary";
-      confEl.textContent = "";
-      wallEl.textContent = "—";
-      entEl.textContent  = "—";
-      tgtEl.textContent  = "—";
-      slEl.textContent   = "—";
-      condEl.innerHTML   = "";
-      return;
+      if (lastData.neutral_zone && lastData.neutral_zone !== lastData.max_pain) {
+        datasets.push({
+          label: `Neutral Zone ${lastData.neutral_zone}`,
+          data: [{ x: lastData.neutral_zone, y: yMin }, { x: lastData.neutral_zone, y: yMax }],
+          borderColor: "#4dabf7",
+          backgroundColor: "#4dabf7",
+          borderDash: [2, 4],
+          showLine: true,
+          pointRadius: 0,
+          borderWidth: 1.5,
+        });
+      }
     }
 
-    dirEl.textContent = sig.direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
-    dirEl.className   = "fs-5 fw-bold mb-1 " + (sig.direction === "LONG" ? "text-success" : "text-danger");
-    confEl.textContent = sig.confidence + "% confidence";
-    wallEl.textContent = sig.cls + " @ " + sig.strike.toLocaleString();
-    entEl.textContent  = "₹" + sig.entry.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    tgtEl.textContent  = "₹" + sig.target.toLocaleString();
-    slEl.textContent   = "₹" + sig.sl.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    condEl.innerHTML   = sig.met.map(c => `<span class="badge bg-success me-1">${c}</span>`).join("") +
-                         sig.failed.map(c => `<span class="badge bg-secondary me-1">${c}</span>`).join("");
-  }
-
-  function renderMaxPainKPI(mp, spot) {
-    const mpEl   = document.getElementById("kpi-maxpain");
-    const distEl = document.getElementById("kpi-mp-dist");
-    const biasEl = document.getElementById("kpi-mp-bias");
-    if (!mpEl || !mp) return;
-
-    mpEl.textContent = mp.toLocaleString();
-    if (spot > 0) {
-      const pct  = ((mp - spot) / spot * 100).toFixed(2);
-      const sign = pct >= 0 ? "+" : "";
-      distEl.textContent = sign + pct + "% from spot";
-      const dir  = mp > spot ? "→ LONG gravity" : mp < spot ? "→ SHORT gravity" : "→ At spot";
-      const col  = mp > spot ? "text-success" : mp < spot ? "text-danger" : "text-secondary";
-      biasEl.textContent = dir;
-      biasEl.className   = "small mt-1 fw-semibold " + col;
-    } else {
-      distEl.textContent = "";
-      biasEl.textContent = "";
-    }
-  }
-
-  function renderClarityBadge(el, clarity) {
-    const map = {
-      "CLEAR":  ["success", "CLEAR"],
-      "MIXED":  ["warning", "MIXED"],
-      "NO_MAP": ["secondary","NO MAP"],
-    };
-    const [color, label] = map[clarity] || ["secondary", clarity || "—"];
-    el.className  = `badge bg-${color}`;
-    el.textContent = label;
-  }
-
-  function fmtPrice(v) {
-    return v > 0 ? "₹" + v.toFixed(2) : "—";
-  }
-
-  function fmtOI(v) {
-    if (!v) return "—";
-    return v >= 1e7 ? (v/1e7).toFixed(2)+"Cr" :
-           v >= 1e5 ? (v/1e5).toFixed(2)+"L"  :
-           v.toLocaleString();
+    if (charts[key]) charts[key].destroy();
+    charts[key] = new Chart(document.getElementById(canvasId), {
+      type: "scatter",
+      data: { datasets },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: {
+          x: { title: { display: true, text: "Index Spot", color: "#adb5bd" },
+               ticks: { color: "#adb5bd" }, grid: { color: "#343a40" } },
+          y: { title: { display: true, text: "Option Price", color: "#adb5bd" },
+               ticks: { color: "#adb5bd" }, grid: { color: "#343a40" } },
+        },
+        plugins: {
+          legend: { labels: { color: "#dee2e6", font: { size: 11 } } },
+          tooltip: {
+            callbacks: {
+              label: ctx => `${ctx.dataset.label}: spot ${ctx.parsed.x.toFixed(2)} → ₹${ctx.parsed.y.toFixed(2)}`,
+            },
+          },
+        },
+      },
+    });
   }
 }

@@ -247,8 +247,11 @@ function initAnalyzer() {
         };
       });
 
+    const canvasEl = document.getElementById(canvasId);
     if (charts[key]) charts[key].destroy();
-    charts[key] = new Chart(document.getElementById(canvasId), {
+    const existing = Chart.getChart(canvasEl);
+    if (existing) existing.destroy();
+    charts[key] = new Chart(canvasEl, {
       type: "line",
       data: { datasets },
       options: {
@@ -327,8 +330,11 @@ function initAnalyzer() {
       }
     }
 
+    const canvasEl2 = document.getElementById(canvasId);
     if (charts[key]) charts[key].destroy();
-    charts[key] = new Chart(document.getElementById(canvasId), {
+    const existing2 = Chart.getChart(canvasEl2);
+    if (existing2) existing2.destroy();
+    charts[key] = new Chart(canvasEl2, {
       type: "scatter",
       data: { datasets },
       options: {

@@ -55,6 +55,12 @@
         <span class="sidebar-link__icon" aria-hidden="true">📡</span>
         <span class="sidebar-link__label">ActiveTip</span>
       </a>
+      <a href="/analyzer/advanced"
+         aria-label="ActiveTape"
+         class="sidebar-link {% if request.path.startswith('/analyzer/advanced') %}active{% endif %}">
+        <span class="sidebar-link__icon" aria-hidden="true">📜</span>
+        <span class="sidebar-link__label">ActiveTape</span>
+      </a>
       <a href="/pov"
          aria-label="POV"
          class="sidebar-link {% if request.path.startswith('/pov') %}active{% endif %}">
